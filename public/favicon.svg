@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Background -->
+  <rect width="64" height="64" rx="12" fill="#111827"></rect>
+
+  <!-- House -->
+  <path d="M20 30 L32 20 L44 30 V44 H20 Z" fill="white"></path>
+
+  <!-- Window -->
+  <rect x="28" y="34" width="8" height="8" fill="#111827"></rect>
+
+  <!-- Hand (simplified curve) -->
+  <path d="M12 38 C18 34, 26 34, 32 36 C38 38, 44 38, 52 34 
+           L52 40 C44 44, 36 46, 28 44 C20 42, 16 42, 12 44 Z" fill="#10B981"></path>
+</svg>
