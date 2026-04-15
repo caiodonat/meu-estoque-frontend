@@ -2,6 +2,8 @@ import { Link, Outlet, useRouter } from '@tanstack/react-router';
 import { useMutation } from '@tanstack/react-query';
 import { useState, useEffect } from 'react';
 import {
+  CarFrontIcon,
+  FileTextIcon,
   HouseIcon,
   LayoutDashboardIcon,
   ReceiptIcon,
@@ -21,6 +23,8 @@ import { cn } from '@/lib/utils';
 const navItems = [
   { to: '/', label: 'Início', icon: HouseIcon, exact: true },
   { to: '/clientes', label: 'Clientes', icon: UsersIcon, exact: false },
+  { to: '/veiculos', label: 'Veículos', icon: CarFrontIcon, exact: false },
+  { to: '/orcamentos', label: 'Orçamentos', icon: FileTextIcon, exact: false },
   { to: '/financeiro', label: 'Financeiro', icon: LayoutDashboardIcon, exact: true },
   { to: '/financeiro/despesas', label: 'Gastos', icon: ReceiptIcon, exact: false },
   { to: '/financeiro/calendar', label: 'Calendário', icon: CalendarIcon, exact: false },

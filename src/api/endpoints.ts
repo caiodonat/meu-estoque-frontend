@@ -42,6 +42,124 @@ export const customersApi = {
   delete: (id: string) => api.delete<void>(`/customers/${id}`),
 };
 
+// --- Vehicles ---
+
+export interface VehicleResponse {
+  id: string;
+  customerId: string;
+  customerName: string;
+  plate: string;
+  brand: string;
+  model: string;
+  year?: number;
+  engine?: string;
+  chassis?: string;
+  color?: string;
+  mileage?: number;
+  notes?: string;
+}
+
+export interface VehicleRequest {
+  customerId: string;
+  plate: string;
+  brand: string;
+  model: string;
+  year?: number;
+  engine?: string;
+  chassis?: string;
+  color?: string;
+  mileage?: number;
+  notes?: string;
+}
+
+export const vehiclesApi = {
+  list: () => api.get<VehicleResponse[]>('/vehicles'),
+  create: (data: VehicleRequest) => api.post<void>('/vehicles', data),
+  update: (id: string, data: VehicleRequest) => api.put<void>(`/vehicles/${id}`, data),
+  delete: (id: string) => api.delete<void>(`/vehicles/${id}`),
+};
+
+// --- Payment methods ---
+
+export interface PaymentMethodResponse {
+  code: string;
+  label: string;
+  info: string;
+}
+
+export const paymentMethodsApi = {
+  list: () => api.get<PaymentMethodResponse[]>('/payment-methods'),
+};
+
+// --- Budgets ---
+
+export type BudgetStatus = 'draft' | 'issued' | 'approved' | 'refused' | 'finalized' | 'canceled';
+export type BudgetItemType = 'part' | 'service';
+
+export interface BudgetItemRequest {
+  itemType: BudgetItemType;
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  notes?: string;
+}
+
+export interface BudgetRequest {
+  customerId: string;
+  vehicleId: string;
+  paymentMethodCode?: string;
+  status: BudgetStatus;
+  discountAmount?: number;
+  partsWarranty?: string;
+  laborWarranty?: string;
+  entryDate: string;
+  validUntil?: string;
+  completedAt?: string;
+  notes?: string;
+  items: BudgetItemRequest[];
+}
+
+export interface BudgetItemResponse {
+  id: string;
+  itemType: BudgetItemType;
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  totalAmount: number;
+  notes?: string;
+}
+
+export interface BudgetResponse {
+  id: string;
+  number: string;
+  customerId: string;
+  customerName: string;
+  vehicleId: string;
+  vehicleDisplay: string;
+  paymentMethodCode?: string;
+  paymentMethodLabel?: string;
+  status: BudgetStatus;
+  subtotalParts: number;
+  subtotalServices: number;
+  subtotal: number;
+  discountAmount: number;
+  totalAmount: number;
+  partsWarranty?: string;
+  laborWarranty?: string;
+  entryDate: string;
+  validUntil?: string;
+  completedAt?: string;
+  notes?: string;
+  items: BudgetItemResponse[];
+}
+
+export const budgetsApi = {
+  list: () => api.get<BudgetResponse[]>('/budgets'),
+  create: (data: BudgetRequest) => api.post<void>('/budgets', data),
+  update: (id: string, data: BudgetRequest) => api.put<void>(`/budgets/${id}`, data),
+  delete: (id: string) => api.delete<void>(`/budgets/${id}`),
+};
+
 // --- Expenses ---
 
 export interface ExpenseResponse {
