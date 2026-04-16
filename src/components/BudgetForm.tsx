@@ -89,8 +89,8 @@ export function budgetToFormValues(budget: BudgetResponse): BudgetFormValues {
   };
 }
 
-function normalizeDecimal(value: string): number {
-  if (!value.trim()) return 0;
+function normalizeDecimal(value?: string): number {
+  if (!value?.trim()) return 0;
   return Number(value.replace(',', '.'));
 }
 
@@ -117,7 +117,7 @@ export function toBudgetPayload(values: BudgetFormValues): BudgetRequest {
   };
 }
 
-function parseMoney(value: string): number {
+function parseMoney(value?: string): number {
   const parsed = normalizeDecimal(value);
   return Number.isNaN(parsed) ? 0 : parsed;
 }

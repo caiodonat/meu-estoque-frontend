@@ -33,7 +33,7 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle>HomeHelp</CardTitle>
+          <CardTitle>OficinaDigital</CardTitle>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit((d) => login.mutate(d))} className="space-y-4">

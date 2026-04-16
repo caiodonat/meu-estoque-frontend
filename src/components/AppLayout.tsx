@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react';
 import {
   CarFrontIcon,
   FileTextIcon,
-  HouseIcon,
   LayoutDashboardIcon,
   ReceiptIcon,
   CalendarIcon,
@@ -21,10 +20,9 @@ import { authApi } from '@/api/endpoints';
 import { cn } from '@/lib/utils';
 
 const navItems = [
-  { to: '/', label: 'Início', icon: HouseIcon, exact: true },
+  { to: '/ordens-servico', label: 'Ordens de Serviço', icon: FileTextIcon, exact: false },
   { to: '/clientes', label: 'Clientes', icon: UsersIcon, exact: false },
   { to: '/veiculos', label: 'Veículos', icon: CarFrontIcon, exact: false },
-  { to: '/orcamentos', label: 'Orçamentos', icon: FileTextIcon, exact: false },
   { to: '/financeiro', label: 'Financeiro', icon: LayoutDashboardIcon, exact: true },
   { to: '/financeiro/despesas', label: 'Gastos', icon: ReceiptIcon, exact: false },
   { to: '/financeiro/calendar', label: 'Calendário', icon: CalendarIcon, exact: false },
@@ -79,7 +77,7 @@ export function AppLayout() {
           <div className="flex flex-1 items-center gap-2 pl-1 overflow-hidden">
             <HomeIcon className="size-5 shrink-0 text-sidebar-primary" />
             <span className="truncate font-semibold tracking-tight text-sidebar-foreground">
-              HomeHelp
+              OficinaDigital
             </span>
           </div>
         )}
@@ -170,7 +168,7 @@ export function AppLayout() {
           </button>
           <div className="flex min-w-0 items-center gap-2">
             <HomeIcon className="size-5 text-sidebar-primary" />
-            <span className="truncate font-semibold tracking-tight text-sidebar-foreground">HomeHelp</span>
+            <span className="truncate font-semibold tracking-tight text-sidebar-foreground">OficinaDigital</span>
           </div>
         </header>
 

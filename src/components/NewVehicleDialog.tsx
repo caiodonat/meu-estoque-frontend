@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
 
 const currentYear = new Date().getFullYear() + 1;
 
@@ -145,35 +146,37 @@ export function NewVehicleDialog() {
             </div>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-4">
-            <div className="space-y-1">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="space-y-1 min-w-0">
               <Label htmlFor="vehicle-year">Ano</Label>
               <Input id="vehicle-year" inputMode="numeric" {...register('year')} />
               {errors.year && <p className="text-sm text-red-500">{errors.year.message}</p>}
             </div>
-            <div className="space-y-1">
-              <Label htmlFor="vehicle-engine">Motor</Label>
-              <Input id="vehicle-engine" {...register('engine')} />
-            </div>
-            <div className="space-y-1">
+            <div className="space-y-1 min-w-0">
               <Label htmlFor="vehicle-color">Cor</Label>
               <Input id="vehicle-color" {...register('color')} />
             </div>
-            <div className="space-y-1">
+            <div className="space-y-1 min-w-0">
               <Label htmlFor="vehicle-mileage">Quilometragem</Label>
               <Input id="vehicle-mileage" inputMode="numeric" {...register('mileage')} />
               {errors.mileage && <p className="text-sm text-red-500">{errors.mileage.message}</p>}
             </div>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1">
-              <Label htmlFor="vehicle-chassis">Chassi</Label>
-              <Input id="vehicle-chassis" {...register('chassis')} />
+          <div className="space-y-3">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <Label htmlFor="vehicle-engine">Motor</Label>
+                <Input id="vehicle-engine" {...register('engine')} />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="vehicle-chassis">Chassi</Label>
+                <Input id="vehicle-chassis" {...register('chassis')} />
+              </div>
             </div>
             <div className="space-y-1">
               <Label htmlFor="vehicle-notes">Observações</Label>
-              <Input id="vehicle-notes" {...register('notes')} />
+              <Textarea id="vehicle-notes" rows={4} {...register('notes')} />
             </div>
           </div>
 

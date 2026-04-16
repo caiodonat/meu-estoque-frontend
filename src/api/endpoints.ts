@@ -132,6 +132,7 @@ export interface BudgetItemResponse {
 export interface BudgetResponse {
   id: string;
   number: string;
+  serviceOrderId?: string;
   customerId: string;
   customerName: string;
   vehicleId: string;
@@ -153,11 +154,69 @@ export interface BudgetResponse {
   items: BudgetItemResponse[];
 }
 
+export interface CreateEntityResponse {
+  id: string;
+}
+
 export const budgetsApi = {
   list: () => api.get<BudgetResponse[]>('/budgets'),
-  create: (data: BudgetRequest) => api.post<void>('/budgets', data),
+  create: (data: BudgetRequest) => api.post<CreateEntityResponse>('/budgets', data),
   update: (id: string, data: BudgetRequest) => api.put<void>(`/budgets/${id}`, data),
   delete: (id: string) => api.delete<void>(`/budgets/${id}`),
+};
+
+// --- Service orders ---
+
+export type ServiceOrderStatus = 'open' | 'in_progress' | 'finalized' | 'canceled';
+
+export interface ServiceOrderRequest {
+  budgetId: string;
+  profitMargin: number;
+  status: ServiceOrderStatus;
+  openedAt: string;
+  closedAt?: string;
+  notes?: string;
+}
+
+export interface ServiceOrderResponse {
+  id: string;
+  budgetId: string;
+  budgetNumber: string;
+  budgetStatus: BudgetStatus;
+  budgetTotalAmount: number;
+  customerId: string;
+  customerName: string;
+  vehicleId: string;
+  vehicleDisplay: string;
+  profitMargin: number;
+  status: ServiceOrderStatus;
+  openedAt: string;
+  closedAt?: string;
+  notes?: string;
+}
+
+export interface ServiceOrderDetailResponse {
+  id: string;
+  budgetId: string;
+  budgetNumber: string;
+  customerId: string;
+  customerName: string;
+  vehicleId: string;
+  vehicleDisplay: string;
+  profitMargin: number;
+  status: ServiceOrderStatus;
+  openedAt: string;
+  closedAt?: string;
+  notes?: string;
+  budget: BudgetResponse;
+}
+
+export const serviceOrdersApi = {
+  list: () => api.get<ServiceOrderResponse[]>('/service-orders'),
+  get: (id: string) => api.get<ServiceOrderDetailResponse>(`/service-orders/${id}`),
+  create: (data: ServiceOrderRequest) => api.post<CreateEntityResponse>('/service-orders', data),
+  update: (id: string, data: ServiceOrderRequest) => api.put<void>(`/service-orders/${id}`, data),
+  delete: (id: string) => api.delete<void>(`/service-orders/${id}`),
 };
 
 // --- Expenses ---
