@@ -109,7 +109,8 @@ export default function PrintServiceOrderPage() {
                 <p><span className="font-medium">OS:</span> {serviceOrder.budgetNumber}</p>
                 <p><span className="font-medium">Status OS:</span> {serviceOrderStatusLabels[serviceOrder.status] ?? serviceOrder.status}</p>
                 <p><span className="font-medium">Status orcamento:</span> {budgetStatusLabels[budget.status] ?? budget.status}</p>
-                <p><span className="font-medium">Abertura:</span> {dateFormatter.format(new Date(serviceOrder.openedAt))}</p>
+                <p><span className="font-medium">Entrada:</span> {dateFormatter.format(new Date(serviceOrder.entryDate))}</p>
+                <p><span className="font-medium">Fechamento:</span> {serviceOrder.closedAt ? dateFormatter.format(new Date(serviceOrder.closedAt)) : 'Em aberto'}</p>
               </div>
             </div>
           </div>
@@ -119,7 +120,6 @@ export default function PrintServiceOrderPage() {
               <h2 className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Cliente</h2>
               <div className="space-y-1 text-sm">
                 <p className="text-base font-medium text-slate-950">{serviceOrder.customerName}</p>
-                <p><span className="font-medium">Codigo:</span> {serviceOrder.customerId}</p>
               </div>
             </section>
 
@@ -127,7 +127,6 @@ export default function PrintServiceOrderPage() {
               <h2 className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Veiculo</h2>
               <div className="space-y-1 text-sm">
                 <p className="text-base font-medium text-slate-950">{serviceOrder.vehicleDisplay}</p>
-                <p><span className="font-medium">Codigo:</span> {serviceOrder.vehicleId}</p>
               </div>
             </section>
 
@@ -135,8 +134,7 @@ export default function PrintServiceOrderPage() {
               <h2 className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Condicoes</h2>
               <div className="space-y-1 text-sm">
                 <p><span className="font-medium">Forma de pagamento:</span> {budget.paymentMethodLabel ?? 'Nao informada'}</p>
-                <p><span className="font-medium">Validade:</span> {budget.validUntil ? dateFormatter.format(new Date(budget.validUntil)) : 'Nao informada'}</p>
-                <p><span className="font-medium">Entrada:</span> {dateFormatter.format(new Date(budget.entryDate))}</p>
+                <p><span className="font-medium">Criacao do orcamento:</span> {dateFormatter.format(new Date(budget.createdAt))}</p>
               </div>
             </section>
 
@@ -195,14 +193,6 @@ export default function PrintServiceOrderPage() {
               <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-8 gap-y-2 border-t pt-2">
                 <span className="text-slate-600">Subtotal geral</span>
                 <span className="text-right tabular-nums">{currencyFormatter.format(budget.subtotal)}</span>
-              </div>
-              <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-8 gap-y-2 border-t pt-2">
-                <span className="text-slate-600">Desconto</span>
-                <span className="text-right tabular-nums">{currencyFormatter.format(budget.discountAmount)}</span>
-              </div>
-              <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-8 gap-y-2 border-t pt-2">
-                <span className="text-slate-600">Margem de lucro</span>
-                <span className="text-right tabular-nums">{currencyFormatter.format(serviceOrder.profitMargin)}</span>
               </div>
               <div className="mt-2 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-8 border-t pt-3 text-base font-semibold">
                 <span>Total</span>

@@ -1,5 +1,5 @@
 import { Controller, type Control, type FieldErrors, type UseFormRegister, type UseFormSetValue, type UseFormWatch } from 'react-hook-form';
-import type { BudgetResponse, CustomerResponse, PaymentMethodResponse, ServiceOrderDetailResponse, ServiceOrderRequest, ServiceOrderStatus, VehicleResponse } from '@/api/endpoints';
+import type { BudgetResponse, CustomerResponse, ServiceOrderDetailResponse, ServiceOrderRequest, ServiceOrderStatus, VehicleResponse } from '@/api/endpoints';
 import { BudgetFormFields, budgetToFormValues, defaultBudgetValues, toBudgetPayload, type BudgetFormValues } from '@/components/BudgetForm';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -13,16 +13,9 @@ export const serviceOrderStatuses: Array<{ value: ServiceOrderStatus; label: str
 ];
 
 export interface ServiceOrderFormValues extends BudgetFormValues {
-  profitMargin: string;
   serviceOrderStatus: ServiceOrderStatus;
-  openedAt: string;
-  closedAt: string;
+  serviceOrderEntryDate: string;
   serviceOrderNotes: string;
-}
-
-function normalizeDecimal(value?: string): number {
-  if (!value?.trim()) return 0;
-  return Number(value.replace(',', '.'));
 }
 
 export function defaultServiceOrderValues(): ServiceOrderFormValues {
@@ -30,10 +23,8 @@ export function defaultServiceOrderValues(): ServiceOrderFormValues {
 
   return {
     ...budgetDefaults,
-    profitMargin: '0',
     serviceOrderStatus: 'open',
-    openedAt: budgetDefaults.entryDate,
-    closedAt: '',
+    serviceOrderEntryDate: budgetDefaults.createdAt,
     serviceOrderNotes: '',
   };
 }
@@ -41,10 +32,8 @@ export function defaultServiceOrderValues(): ServiceOrderFormValues {
 export function serviceOrderToFormValues(serviceOrder: ServiceOrderDetailResponse): ServiceOrderFormValues {
   return {
     ...budgetToFormValues(serviceOrder.budget),
-    profitMargin: serviceOrder.profitMargin.toString(),
     serviceOrderStatus: serviceOrder.status,
-    openedAt: serviceOrder.openedAt.slice(0, 10),
-    closedAt: serviceOrder.closedAt?.slice(0, 10) ?? '',
+    serviceOrderEntryDate: serviceOrder.entryDate.slice(0, 10),
     serviceOrderNotes: serviceOrder.notes ?? '',
   };
 }
@@ -52,10 +41,8 @@ export function serviceOrderToFormValues(serviceOrder: ServiceOrderDetailRespons
 export function toServiceOrderPayload(values: ServiceOrderFormValues, budgetId: string): ServiceOrderRequest {
   return {
     budgetId,
-    profitMargin: normalizeDecimal(values.profitMargin),
     status: values.serviceOrderStatus,
-    openedAt: new Date(`${values.openedAt}T00:00:00`).toISOString(),
-    closedAt: values.closedAt ? new Date(`${values.closedAt}T00:00:00`).toISOString() : undefined,
+    entryDate: new Date(`${values.serviceOrderEntryDate}T00:00:00`).toISOString(),
     notes: values.serviceOrderNotes || undefined,
   };
 }
@@ -72,8 +59,8 @@ interface Props {
   errors: FieldErrors<ServiceOrderFormValues>;
   customers?: CustomerResponse[];
   vehicles?: VehicleResponse[];
-  paymentMethods?: PaymentMethodResponse[];
   existingBudget?: BudgetResponse;
+  existingClosedAt?: string;
 }
 
 export function ServiceOrderFormFields({
@@ -84,10 +71,15 @@ export function ServiceOrderFormFields({
   errors,
   customers,
   vehicles,
-  paymentMethods,
   existingBudget,
+  existingClosedAt,
 }: Props) {
   const selectedStatus = serviceOrderStatuses.find((status) => status.value === watch('serviceOrderStatus'));
+  const closedAtValue = existingClosedAt
+    ? existingClosedAt.slice(0, 10)
+    : watch('serviceOrderStatus') === 'finalized' || watch('serviceOrderStatus') === 'canceled'
+      ? new Date().toISOString().slice(0, 10)
+      : '';
 
   return (
     <div className="space-y-6">
@@ -101,7 +93,7 @@ export function ServiceOrderFormFields({
           </p>
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-3 md:grid-cols-3">
           <div className="space-y-1">
             <Label>Status da OS</Label>
             <Controller
@@ -123,20 +115,20 @@ export function ServiceOrderFormFields({
           </div>
 
           <div className="space-y-1">
-            <Label htmlFor="service-order-profit-margin">Margem de lucro</Label>
-            <Input id="service-order-profit-margin" inputMode="decimal" {...register('profitMargin')} />
-            {errors.profitMargin && <p className="text-sm text-red-500">{errors.profitMargin.message}</p>}
-          </div>
-
-          <div className="space-y-1">
-            <Label htmlFor="service-order-opened-at">Data de abertura</Label>
-            <Input id="service-order-opened-at" type="date" {...register('openedAt')} />
-            {errors.openedAt && <p className="text-sm text-red-500">{errors.openedAt.message}</p>}
+            <Label htmlFor="service-order-entry-date">Data de entrada</Label>
+            <Input id="service-order-entry-date" type="date" disabled {...register('serviceOrderEntryDate')} />
+            {errors.serviceOrderEntryDate && <p className="text-sm text-red-500">{errors.serviceOrderEntryDate.message}</p>}
           </div>
 
           <div className="space-y-1">
             <Label htmlFor="service-order-closed-at">Data de fechamento</Label>
-            <Input id="service-order-closed-at" type="date" {...register('closedAt')} />
+            <Input
+              id="service-order-closed-at"
+              type="date"
+              disabled
+              value={closedAtValue}
+              readOnly
+            />
           </div>
         </div>
 
@@ -160,7 +152,7 @@ export function ServiceOrderFormFields({
           errors={errors}
           customers={customers}
           vehicles={vehicles}
-          paymentMethods={paymentMethods}
+          lockCreatedAt
         />
       </div>
     </div>

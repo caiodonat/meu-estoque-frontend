@@ -65,7 +65,7 @@ export default function BudgetsPage() {
                 <TableHead>Cliente</TableHead>
                 <TableHead>Veículo</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead>Entrada</TableHead>
+                <TableHead>Criação</TableHead>
                 <TableHead>Total</TableHead>
                 <TableHead>Itens</TableHead>
                 <TableHead className="w-20" />
@@ -86,7 +86,7 @@ export default function BudgetsPage() {
                   <TableCell>{budget.customerName}</TableCell>
                   <TableCell>{budget.vehicleDisplay}</TableCell>
                   <TableCell>{statusLabels[budget.status] ?? budget.status}</TableCell>
-                  <TableCell>{dateFormatter.format(new Date(budget.entryDate))}</TableCell>
+                  <TableCell>{dateFormatter.format(new Date(budget.createdAt))}</TableCell>
                   <TableCell>{currencyFormatter.format(budget.totalAmount)}</TableCell>
                   <TableCell>{budget.items.length}</TableCell>
                   <TableCell>

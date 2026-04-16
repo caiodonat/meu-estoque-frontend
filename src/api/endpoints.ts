@@ -109,12 +109,9 @@ export interface BudgetRequest {
   vehicleId: string;
   paymentMethodCode?: string;
   status: BudgetStatus;
-  discountAmount?: number;
   partsWarranty?: string;
   laborWarranty?: string;
-  entryDate: string;
-  validUntil?: string;
-  completedAt?: string;
+  createdAt: string;
   notes?: string;
   items: BudgetItemRequest[];
 }
@@ -143,13 +140,10 @@ export interface BudgetResponse {
   subtotalParts: number;
   subtotalServices: number;
   subtotal: number;
-  discountAmount: number;
   totalAmount: number;
   partsWarranty?: string;
   laborWarranty?: string;
-  entryDate: string;
-  validUntil?: string;
-  completedAt?: string;
+  createdAt: string;
   notes?: string;
   items: BudgetItemResponse[];
 }
@@ -171,10 +165,8 @@ export type ServiceOrderStatus = 'open' | 'in_progress' | 'finalized' | 'cancele
 
 export interface ServiceOrderRequest {
   budgetId: string;
-  profitMargin: number;
   status: ServiceOrderStatus;
-  openedAt: string;
-  closedAt?: string;
+  entryDate: string;
   notes?: string;
 }
 
@@ -188,9 +180,8 @@ export interface ServiceOrderResponse {
   customerName: string;
   vehicleId: string;
   vehicleDisplay: string;
-  profitMargin: number;
   status: ServiceOrderStatus;
-  openedAt: string;
+  entryDate: string;
   closedAt?: string;
   notes?: string;
 }
@@ -203,9 +194,8 @@ export interface ServiceOrderDetailResponse {
   customerName: string;
   vehicleId: string;
   vehicleDisplay: string;
-  profitMargin: number;
   status: ServiceOrderStatus;
-  openedAt: string;
+  entryDate: string;
   closedAt?: string;
   notes?: string;
   budget: BudgetResponse;

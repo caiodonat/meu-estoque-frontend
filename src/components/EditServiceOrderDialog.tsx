@@ -4,36 +4,24 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 import { z } from 'zod';
-import { budgetsApi, customersApi, paymentMethodsApi, serviceOrdersApi, type ServiceOrderResponse, vehiclesApi } from '@/api/endpoints';
+import { budgetsApi, customersApi, serviceOrdersApi, type ServiceOrderResponse, vehiclesApi } from '@/api/endpoints';
+import { budgetItemsSchema } from '@/components/BudgetForm';
 import { defaultServiceOrderValues, serviceOrderToFormValues, ServiceOrderFormFields, toServiceOrderBudgetPayload, toServiceOrderPayload, type ServiceOrderFormValues } from '@/components/ServiceOrderForm';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-
-const decimalPattern = /^\d+(?:[.,]\d{1,2})?$/;
 
 const schema = z.object({
   customerId: z.string().min(1, 'Cliente é obrigatório'),
   vehicleId: z.string().min(1, 'Veículo é obrigatório'),
   paymentMethodCode: z.string(),
   status: z.enum(['draft', 'issued', 'approved', 'refused', 'finalized', 'canceled']),
-  discountAmount: z.string().refine((value) => decimalPattern.test(value), 'Desconto inválido'),
   partsWarranty: z.string(),
   laborWarranty: z.string(),
-  entryDate: z.string().min(1, 'Data de entrada é obrigatória'),
-  validUntil: z.string(),
-  completedAt: z.string(),
+  createdAt: z.string().min(1, 'Data de criação é obrigatória'),
   notes: z.string(),
-  items: z.array(z.object({
-    itemType: z.enum(['part', 'service']),
-    description: z.string().min(1, 'Descrição é obrigatória'),
-    quantity: z.string().refine((value) => decimalPattern.test(value) && Number(value.replace(',', '.')) > 0, 'Quantidade inválida'),
-    unitPrice: z.string().refine((value) => decimalPattern.test(value) && Number(value.replace(',', '.')) >= 0, 'Valor inválido'),
-    notes: z.string(),
-  })).min(1, 'Adicione ao menos um item'),
-  profitMargin: z.string().refine((value) => decimalPattern.test(value) && Number(value.replace(',', '.')) >= 0, 'Margem inválida'),
+  items: budgetItemsSchema,
   serviceOrderStatus: z.enum(['open', 'in_progress', 'finalized', 'canceled']),
-  openedAt: z.string().min(1, 'Data de abertura é obrigatória'),
-  closedAt: z.string(),
+  serviceOrderEntryDate: z.string().min(1, 'Data de entrada é obrigatória'),
   serviceOrderNotes: z.string(),
 });
 
@@ -47,7 +35,6 @@ export function EditServiceOrderDialog({ serviceOrder, onClose }: Props) {
   const queryClient = useQueryClient();
   const { data: customers } = useQuery({ queryKey: ['customers'], queryFn: customersApi.list });
   const { data: vehicles } = useQuery({ queryKey: ['vehicles'], queryFn: vehiclesApi.list });
-  const { data: paymentMethods } = useQuery({ queryKey: ['payment-methods'], queryFn: paymentMethodsApi.list });
   const { data: serviceOrderDetail, isLoading } = useQuery({
     queryKey: ['service-orders', serviceOrder?.id],
     queryFn: () => serviceOrdersApi.get(serviceOrder!.id),
@@ -100,8 +87,8 @@ export function EditServiceOrderDialog({ serviceOrder, onClose }: Props) {
                   errors={form.formState.errors}
                   customers={customers}
                   vehicles={vehicles}
-                  paymentMethods={paymentMethods}
                   existingBudget={serviceOrderDetail?.budget}
+                  existingClosedAt={serviceOrderDetail?.closedAt}
                 />
               </div>
               <div className="flex shrink-0 flex-col-reverse gap-2 border-t pt-4 sm:flex-row sm:justify-end">

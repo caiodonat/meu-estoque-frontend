@@ -1,8 +1,9 @@
 import { useEffect } from 'react';
-import { useFieldArray, type Control, type FieldErrors, type UseFormRegister, type UseFormSetValue, type UseFormWatch } from 'react-hook-form';
+import { useFieldArray, useWatch, type Control, type FieldErrors, type UseFormRegister, type UseFormSetValue, type UseFormWatch } from 'react-hook-form';
 import { Controller } from 'react-hook-form';
-import { PlusIcon, Trash2Icon } from 'lucide-react';
-import type { BudgetRequest, BudgetResponse, BudgetStatus, PaymentMethodResponse, VehicleResponse, CustomerResponse } from '@/api/endpoints';
+import { Trash2Icon } from 'lucide-react';
+import { z } from 'zod';
+import type { BudgetRequest, BudgetResponse, BudgetStatus, VehicleResponse, CustomerResponse } from '@/api/endpoints';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -23,12 +24,9 @@ export interface BudgetFormValues {
   vehicleId: string;
   paymentMethodCode: string;
   status: BudgetStatus;
-  discountAmount: string;
   partsWarranty: string;
   laborWarranty: string;
-  entryDate: string;
-  validUntil: string;
-  completedAt: string;
+  createdAt: string;
   notes: string;
   items: Array<{
     itemType: 'part' | 'service';
@@ -39,6 +37,63 @@ export interface BudgetFormValues {
   }>;
 }
 
+const decimalPattern = /^\d+(?:[.,]\d{1,2})?$/;
+
+export function createEmptyBudgetItem(): BudgetFormValues['items'][number] {
+  return {
+    itemType: 'part',
+    description: '',
+    quantity: '1',
+    unitPrice: '0',
+    notes: '',
+  };
+}
+
+export function isBlankBudgetItem(item: BudgetFormValues['items'][number]): boolean {
+  const quantity = item.quantity.trim();
+  const unitPrice = item.unitPrice.trim().replace(',', '.');
+
+  return item.description.trim() === ''
+    && item.notes.trim() === ''
+    && (quantity === '' || quantity === '1')
+    && (unitPrice === '' || Number(unitPrice) === 0);
+}
+
+export const budgetItemsSchema = z.array(z.object({
+  itemType: z.enum(['part', 'service']),
+  description: z.string(),
+  quantity: z.string(),
+  unitPrice: z.string(),
+  notes: z.string(),
+})).superRefine((items, ctx) => {
+  const nonBlankItems = items
+    .map((item, index) => ({ item, index }))
+    .filter(({ item }) => !isBlankBudgetItem(item));
+
+  if (nonBlankItems.length === 0) {
+    ctx.addIssue({
+      code: 'custom',
+      message: 'Adicione ao menos um item',
+      path: [],
+    });
+    return;
+  }
+
+  for (const { item, index } of nonBlankItems) {
+    if (!item.description.trim()) {
+      ctx.addIssue({ code: 'custom', message: 'Descrição é obrigatória', path: [index, 'description'] });
+    }
+
+    if (!decimalPattern.test(item.quantity) || Number(item.quantity.replace(',', '.')) <= 0) {
+      ctx.addIssue({ code: 'custom', message: 'Quantidade inválida', path: [index, 'quantity'] });
+    }
+
+    if (!decimalPattern.test(item.unitPrice) || Number(item.unitPrice.replace(',', '.')) < 0) {
+      ctx.addIssue({ code: 'custom', message: 'Valor inválido', path: [index, 'unitPrice'] });
+    }
+  }
+});
+
 export function defaultBudgetValues(): BudgetFormValues {
   const today = new Date().toISOString().slice(0, 10);
 
@@ -47,22 +102,11 @@ export function defaultBudgetValues(): BudgetFormValues {
     vehicleId: '',
     paymentMethodCode: '',
     status: 'draft',
-    discountAmount: '0',
     partsWarranty: '',
     laborWarranty: '',
-    entryDate: today,
-    validUntil: '',
-    completedAt: '',
+    createdAt: today,
     notes: '',
-    items: [
-      {
-        itemType: 'service',
-        description: '',
-        quantity: '1',
-        unitPrice: '0',
-        notes: '',
-      },
-    ],
+    items: [createEmptyBudgetItem()],
   };
 }
 
@@ -72,20 +116,20 @@ export function budgetToFormValues(budget: BudgetResponse): BudgetFormValues {
     vehicleId: budget.vehicleId,
     paymentMethodCode: budget.paymentMethodCode ?? '',
     status: budget.status,
-    discountAmount: budget.discountAmount.toString(),
     partsWarranty: budget.partsWarranty ?? '',
     laborWarranty: budget.laborWarranty ?? '',
-    entryDate: budget.entryDate.slice(0, 10),
-    validUntil: budget.validUntil?.slice(0, 10) ?? '',
-    completedAt: budget.completedAt?.slice(0, 10) ?? '',
+    createdAt: budget.createdAt.slice(0, 10),
     notes: budget.notes ?? '',
-    items: budget.items.map((item) => ({
-      itemType: item.itemType,
-      description: item.description,
-      quantity: item.quantity.toString(),
-      unitPrice: item.unitPrice.toString(),
-      notes: item.notes ?? '',
-    })),
+    items: [
+      ...budget.items.map((item) => ({
+        itemType: item.itemType,
+        description: item.description,
+        quantity: item.quantity.toString(),
+        unitPrice: item.unitPrice.toString(),
+        notes: item.notes ?? '',
+      })),
+      createEmptyBudgetItem(),
+    ],
   };
 }
 
@@ -100,20 +144,19 @@ export function toBudgetPayload(values: BudgetFormValues): BudgetRequest {
     vehicleId: values.vehicleId,
     paymentMethodCode: values.paymentMethodCode || undefined,
     status: values.status,
-    discountAmount: normalizeDecimal(values.discountAmount),
     partsWarranty: values.partsWarranty || undefined,
     laborWarranty: values.laborWarranty || undefined,
-    entryDate: new Date(`${values.entryDate}T00:00:00`).toISOString(),
-    validUntil: values.validUntil ? new Date(`${values.validUntil}T00:00:00`).toISOString() : undefined,
-    completedAt: values.completedAt ? new Date(`${values.completedAt}T00:00:00`).toISOString() : undefined,
+    createdAt: new Date(`${values.createdAt}T00:00:00`).toISOString(),
     notes: values.notes || undefined,
-    items: values.items.map((item) => ({
-      itemType: item.itemType,
-      description: item.description,
-      quantity: normalizeDecimal(item.quantity),
-      unitPrice: normalizeDecimal(item.unitPrice),
-      notes: item.notes || undefined,
-    })),
+    items: values.items
+      .filter((item) => !isBlankBudgetItem(item))
+      .map((item) => ({
+        itemType: item.itemType,
+        description: item.description,
+        quantity: normalizeDecimal(item.quantity),
+        unitPrice: normalizeDecimal(item.unitPrice),
+        notes: item.notes || undefined,
+      })),
   };
 }
 
@@ -134,10 +177,19 @@ interface Props {
   errors: FieldErrors<BudgetFormValues>;
   customers?: CustomerResponse[];
   vehicles?: VehicleResponse[];
-  paymentMethods?: PaymentMethodResponse[];
+  lockCreatedAt?: boolean;
 }
 
-export function BudgetFormFields({ control, register, watch, setValue, errors, customers, vehicles, paymentMethods }: Props) {
+export function BudgetFormFields({
+  control,
+  register,
+  watch,
+  setValue,
+  errors,
+  customers,
+  vehicles,
+  lockCreatedAt = false,
+}: Props) {
   const { fields, append, remove } = useFieldArray({
     control,
     name: 'items',
@@ -148,8 +200,6 @@ export function BudgetFormFields({ control, register, watch, setValue, errors, c
   const selectedVehicleId = watch('vehicleId');
   const selectedCustomer = customers?.find((customer) => customer.id === selectedCustomerId);
   const selectedVehicle = filteredVehicles.find((vehicle) => vehicle.id === selectedVehicleId);
-  const selectedPaymentMethodCode = watch('paymentMethodCode');
-  const selectedPaymentMethod = paymentMethods?.find((method) => method.code === selectedPaymentMethodCode);
   const selectedStatus = budgetStatuses.find((status) => status.value === watch('status'));
 
   useEffect(() => {
@@ -158,8 +208,34 @@ export function BudgetFormFields({ control, register, watch, setValue, errors, c
     }
   }, [filteredVehicles, selectedVehicleId, setValue]);
 
-  const items = watch('items') ?? [];
-  const discountAmount = parseMoney(watch('discountAmount'));
+  const items = useWatch({
+    control,
+    name: 'items',
+  }) ?? [];
+
+  useEffect(() => {
+    if (items.length === 0) {
+      append(createEmptyBudgetItem(), { shouldFocus: false });
+      return;
+    }
+
+    const blankIndexes = items
+      .map((item, index) => (isBlankBudgetItem(item) ? index : -1))
+      .filter((index) => index >= 0);
+
+    const lastIndex = items.length - 1;
+    const lastIsBlank = blankIndexes.includes(lastIndex);
+
+    if (!lastIsBlank) {
+      append(createEmptyBudgetItem(), { shouldFocus: false });
+      return;
+    }
+
+    const extraBlankIndexes = blankIndexes.filter((index) => index !== lastIndex);
+    if (extraBlankIndexes.length > 0) {
+      [...extraBlankIndexes].reverse().forEach((index) => remove(index));
+    }
+  }, [append, items, remove]);
   const totals = items.reduce(
     (acc, item) => {
       const lineTotal = parseMoney(item.quantity) * parseMoney(item.unitPrice);
@@ -172,7 +248,7 @@ export function BudgetFormFields({ control, register, watch, setValue, errors, c
     { parts: 0, services: 0 },
   );
   const subtotal = totals.parts + totals.services;
-  const total = Math.max(0, subtotal - discountAmount);
+  const total = subtotal;
 
   return (
     <div className="min-w-0 space-y-4">
@@ -258,51 +334,13 @@ export function BudgetFormFields({ control, register, watch, setValue, errors, c
           />
         </div>
         <div className="space-y-1">
-          <Label>Forma de pagamento</Label>
-          <Controller
-            name="paymentMethodCode"
-            control={control}
-            render={({ field }) => (
-              <Select
-                value={field.value || '__none__'}
-                onValueChange={(value) => field.onChange(value === '__none__' ? '' : value)}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Opcional">
-                    {selectedPaymentMethod?.label}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">Sem forma de pagamento</SelectItem>
-                  {paymentMethods?.map((method) => (
-                    <SelectItem key={method.code} value={method.code}>{method.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-          />
-        </div>
-        <div className="space-y-1">
-          <Label htmlFor="budget-entry-date">Data de entrada</Label>
-          <Input id="budget-entry-date" type="date" {...register('entryDate')} />
-          {errors.entryDate && <p className="text-sm text-red-500">{errors.entryDate.message}</p>}
-        </div>
-        <div className="space-y-1">
-          <Label htmlFor="budget-valid-until">Validade</Label>
-          <Input id="budget-valid-until" type="date" {...register('validUntil')} />
+          <Label htmlFor="budget-created-at">Data de criacao</Label>
+          <Input id="budget-created-at" type="date" disabled={lockCreatedAt} {...register('createdAt')} />
+          {errors.createdAt && <p className="text-sm text-red-500">{errors.createdAt.message}</p>}
         </div>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="space-y-1">
-          <Label htmlFor="budget-completed-at">Data de finalização</Label>
-          <Input id="budget-completed-at" type="date" {...register('completedAt')} />
-        </div>
-        <div className="space-y-1">
-          <Label htmlFor="budget-discount-amount">Desconto</Label>
-          <Input id="budget-discount-amount" inputMode="decimal" {...register('discountAmount')} />
-          {errors.discountAmount && <p className="text-sm text-red-500">{errors.discountAmount.message}</p>}
-        </div>
         <div className="space-y-1">
           <Label htmlFor="budget-parts-warranty">Garantia peças</Label>
           <Input id="budget-parts-warranty" {...register('partsWarranty')} />
@@ -318,42 +356,34 @@ export function BudgetFormFields({ control, register, watch, setValue, errors, c
         <Input id="budget-notes" {...register('notes')} />
       </div>
 
-      <div className="space-y-3 min-w-0">
+      <div className="space-y-2 min-w-0">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <Label>Itens</Label>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => append({ itemType: 'service', description: '', quantity: '1', unitPrice: '0', notes: '' })}
-          >
-            <PlusIcon className="mr-1 h-4 w-4" />
-            Adicionar item
-          </Button>
+          <p className="text-xs text-muted-foreground">A ultima linha permanece vazia para continuar o lancamento com Tab.</p>
         </div>
 
         <div className="min-w-0 rounded-md border">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Tipo</TableHead>
-                <TableHead>Descrição</TableHead>
-                <TableHead>Qtd.</TableHead>
-                <TableHead>Valor unitário</TableHead>
-                <TableHead>Observações</TableHead>
+                <TableHead className="py-2">Tipo</TableHead>
+                <TableHead className="py-2">Descrição</TableHead>
+                <TableHead className="py-2">Qtd.</TableHead>
+                <TableHead className="py-2">Valor unitário</TableHead>
+                <TableHead className="py-2">Observações</TableHead>
                 <TableHead className="w-14" />
               </TableRow>
             </TableHeader>
             <TableBody>
               {fields.map((field, index) => (
                 <TableRow key={field.id}>
-                  <TableCell>
+                  <TableCell className="py-2 align-top">
                     <Controller
                       name={`items.${index}.itemType`}
                       control={control}
                       render={({ field: itemField }) => (
                         <Select value={itemField.value} onValueChange={itemField.onChange}>
-                          <SelectTrigger className="w-full min-w-24">
+                          <SelectTrigger className="h-8 w-full min-w-24">
                             <SelectValue>
                               {itemField.value === 'part' ? 'Peça' : 'Serviço'}
                             </SelectValue>
@@ -366,22 +396,22 @@ export function BudgetFormFields({ control, register, watch, setValue, errors, c
                       )}
                     />
                   </TableCell>
-                  <TableCell>
-                    <Input {...register(`items.${index}.description`)} />
+                  <TableCell className="py-2 align-top">
+                    <Input className="h-8" {...register(`items.${index}.description`)} />
                     {errors.items?.[index]?.description && <p className="text-xs text-red-500">{errors.items[index]?.description?.message}</p>}
                   </TableCell>
-                  <TableCell>
-                    <Input inputMode="decimal" {...register(`items.${index}.quantity`)} />
+                  <TableCell className="py-2 align-top">
+                    <Input className="h-8" inputMode="decimal" {...register(`items.${index}.quantity`)} />
                     {errors.items?.[index]?.quantity && <p className="text-xs text-red-500">{errors.items[index]?.quantity?.message}</p>}
                   </TableCell>
-                  <TableCell>
-                    <Input inputMode="decimal" {...register(`items.${index}.unitPrice`)} />
+                  <TableCell className="py-2 align-top">
+                    <Input className="h-8" inputMode="decimal" {...register(`items.${index}.unitPrice`)} />
                     {errors.items?.[index]?.unitPrice && <p className="text-xs text-red-500">{errors.items[index]?.unitPrice?.message}</p>}
                   </TableCell>
-                  <TableCell>
-                    <Input {...register(`items.${index}.notes`)} />
+                  <TableCell className="py-2 align-top">
+                    <Input className="h-8" {...register(`items.${index}.notes`)} />
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="py-2 align-top">
                     <Button type="button" size="icon-sm" variant="ghost" onClick={() => remove(index)} disabled={fields.length === 1}>
                       <Trash2Icon className="h-4 w-4 text-red-500" />
                     </Button>
