@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronLeftIcon, ChevronRightIcon } from 'lucide-react';
 import {
@@ -47,6 +47,7 @@ function monthEnd(year: number, month: number) {
 type ActiveFilter =
   | { type: 'none' }
   | { type: 'category'; value: string }
+  | { type: 'other-categories' }
   | { type: 'day'; value: number };
 
 type RankedCategoryRow = {
@@ -61,6 +62,43 @@ export default function DashboardPage() {
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [activeFilter, setActiveFilter] = useState<ActiveFilter>({ type: 'none' });
+  const topTenWrapperRef = useRef<HTMLDivElement | null>(null);
+  const [calendarHeight, setCalendarHeight] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+
+    const mediaQuery = window.matchMedia('(min-width: 1280px)');
+
+    const updateCalendarHeight = () => {
+      const wrapper = topTenWrapperRef.current;
+
+      if (!wrapper || !mediaQuery.matches) {
+        setCalendarHeight(null);
+        return;
+      }
+
+      setCalendarHeight(Math.round(wrapper.getBoundingClientRect().height));
+    };
+
+    updateCalendarHeight();
+
+    const resizeObserver = new ResizeObserver(() => {
+      updateCalendarHeight();
+    });
+
+    const wrapper = topTenWrapperRef.current;
+    if (wrapper) resizeObserver.observe(wrapper);
+
+    mediaQuery.addEventListener('change', updateCalendarHeight);
+    window.addEventListener('resize', updateCalendarHeight);
+
+    return () => {
+      resizeObserver.disconnect();
+      mediaQuery.removeEventListener('change', updateCalendarHeight);
+      window.removeEventListener('resize', updateCalendarHeight);
+    };
+  }, []);
 
   function prevMonth() {
     setActiveFilter({ type: 'none' });
@@ -117,6 +155,7 @@ export default function DashboardPage() {
       ...category,
       share: monthTotal > 0 ? category.total / monthTotal : 0,
     }));
+  const explicitTopCategoryNames = new Set(topCategoryData.map((category) => category.category));
 
   const hiddenCategoryTotal = categoryTotals
     .slice(9)
@@ -147,6 +186,9 @@ export default function DashboardPage() {
   const filteredExpenses = expenseList.filter((expense) => {
     if (activeFilter.type === 'none') return true;
     if (activeFilter.type === 'category') return expense.categories?.includes(activeFilter.value) ?? false;
+    if (activeFilter.type === 'other-categories') {
+      return expense.categories?.some((category) => !explicitTopCategoryNames.has(category)) ?? false;
+    }
     if (activeFilter.type === 'day') return parseInt(expense.date.slice(8, 10), 10) === activeFilter.value;
     return true;
   });
@@ -154,6 +196,7 @@ export default function DashboardPage() {
 
   function getFilterTitle() {
     if (activeFilter.type === 'category') return `Despesas da categoria ${activeFilter.value}`;
+    if (activeFilter.type === 'other-categories') return 'Despesas de Outras categorias';
     if (activeFilter.type === 'day') return `Despesas do dia ${String(activeFilter.value).padStart(2, '0')} de ${MONTH_NAMES[month - 1]}`;
     return `Despesas de ${MONTH_NAMES[month - 1]} ${year}`;
   }
@@ -219,7 +262,7 @@ export default function DashboardPage() {
       {/* category pie + calendar side by side */}
       <div className="grid grid-cols-1 items-stretch gap-4 xl:grid-cols-2">
         {/* by category */}
-        <div className="h-full w-full min-w-0">
+        <div ref={topTenWrapperRef} className="h-full w-full min-w-0">
           <Card className="h-full w-full min-w-0">
             <CardHeader>
               <CardTitle className="text-sm">Top 10 categorias de gastos</CardTitle>
@@ -228,31 +271,47 @@ export default function DashboardPage() {
               <div className="space-y-3">
                 {displayedCategoryData.map((category, index) => {
                   const width = maxCategoryTotal > 0 ? (category.total / maxCategoryTotal) * 100 : 0;
-                  const isSelected = activeFilter.type === 'category' && activeFilter.value === category.category;
+                  const isSelected =
+                    (activeFilter.type === 'category' && activeFilter.value === category.category)
+                    || (activeFilter.type === 'other-categories' && category.category === 'Outras categorias');
                   const isAggregatedRow = category.category === 'Outras categorias';
                   const isPlaceholderRow = category.category === '—';
 
                   return (
-                    <div key={category.placeholderKey ?? category.category} className="space-y-1.5 min-w-0">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (isAggregatedRow || isPlaceholderRow) return;
-                          setActiveFilter(isSelected ? { type: 'none' } : { type: 'category', value: category.category });
-                        }}
-                        className="flex w-full items-start justify-between gap-3 min-w-0 rounded-md text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                        aria-pressed={isSelected}
-                        disabled={isAggregatedRow || isPlaceholderRow}
-                      >
+                    <button
+                      key={category.placeholderKey ?? category.category}
+                      type="button"
+                      onClick={() => {
+                        if (isPlaceholderRow) return;
+                        if (isAggregatedRow) {
+                          setActiveFilter(isSelected ? { type: 'none' } : { type: 'other-categories' });
+                          return;
+                        }
+                        setActiveFilter(isSelected ? { type: 'none' } : { type: 'category', value: category.category });
+                      }}
+                      className={[
+                        'flex w-full min-w-0 flex-col gap-1.5 rounded-lg border border-transparent p-2 text-left transition-colors',
+                        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+                        !isPlaceholderRow ? 'hover:bg-muted/40' : '',
+                        isSelected ? 'border-primary/35 bg-accent shadow-sm ring-1 ring-inset ring-primary/25' : '',
+                        isPlaceholderRow ? 'cursor-default' : 'cursor-pointer',
+                      ].join(' ')}
+                      aria-pressed={isSelected}
+                      disabled={isPlaceholderRow}
+                    >
+                      <div className="flex w-full items-start justify-between gap-3 min-w-0">
                         <div className="min-w-0 flex flex-1 items-start gap-2">
-                          <span className="pt-0.5 text-xs font-medium text-muted-foreground tabular-nums">
+                          <span className={[
+                            'pt-0.5 text-xs font-medium tabular-nums',
+                            isSelected ? 'text-primary' : 'text-muted-foreground',
+                          ].join(' ')}>
                             {String(index + 1).padStart(2, '0')}
                           </span>
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2 min-w-0">
-                              <span className="truncate text-sm font-medium">{category.category}</span>
+                              <span className={['truncate text-sm font-medium', isSelected ? 'text-foreground' : ''].join(' ')}>{category.category}</span>
                             </div>
-                            <p className="text-xs text-muted-foreground">
+                            <p className={['text-xs', isSelected ? 'text-foreground/80' : 'text-muted-foreground'].join(' ')}>
                               {isPlaceholderRow
                                 ? '—'
                                 : `${formatPercent(category.share)} do total do mês${isAggregatedRow ? ' (agregado)' : ''}`}
@@ -260,19 +319,19 @@ export default function DashboardPage() {
                           </div>
                         </div>
                         <div className="text-right flex-shrink-0">
-                          <p className="text-sm font-semibold tabular-nums">{isPlaceholderRow ? '—' : formatBRL(category.total)}</p>
+                          <p className={['text-sm font-semibold tabular-nums', isSelected ? 'text-primary' : ''].join(' ')}>{isPlaceholderRow ? '—' : formatBRL(category.total)}</p>
                         </div>
-                      </button>
-                      <div className="h-2 rounded-full bg-muted overflow-hidden">
+                      </div>
+                      <div className={['h-2 w-full overflow-hidden rounded-full', isSelected ? 'bg-primary/15' : 'bg-muted'].join(' ')}>
                         <div
-                          className="h-full rounded-full"
+                          className={['h-full rounded-full transition-all', isSelected ? 'opacity-100 saturate-150' : 'opacity-90'].join(' ')}
                           style={{
                             width: `${width}%`,
                             backgroundColor: RANKING_COLORS[index % RANKING_COLORS.length],
                           }}
                         />
                       </div>
-                    </div>
+                    </button>
                   );
                 })}
               </div>
@@ -282,7 +341,7 @@ export default function DashboardPage() {
 
         <FinancialCalendarCard
           className="h-full"
-          style={{ height: '664px' }}
+          style={calendarHeight === null ? undefined : { height: `${calendarHeight}px` }}
           year={year}
           month={month}
           expenses={expenseList}
