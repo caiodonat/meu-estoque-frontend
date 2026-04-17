@@ -11,7 +11,6 @@ const LoginPage = lazy(() => import('./routes/LoginPage.tsx'));
 const ExpensesPage = lazy(() => import('./routes/ExpensesPage.tsx'));
 const DashboardPage = lazy(() => import('./routes/DashboardPage.tsx'));
 const CategoriesPage = lazy(() => import('./routes/CategoriesPage.tsx'));
-const CalendarPage = lazy(() => import('./routes/CalendarPage.tsx'));
 
 // Root route
 export const rootRoute = createRootRoute();
@@ -128,11 +127,9 @@ export const dashboardRoute = createRoute({
 export const calendarRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: '/financeiro/calendar',
-  component: () => (
-    <Suspense>
-      <CalendarPage />
-    </Suspense>
-  ),
+  beforeLoad: () => {
+    throw redirect({ to: '/financeiro' });
+  },
 });
 
 export const categoriesRoute = createRoute({

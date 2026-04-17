@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon } from 'lucide-react';
+import { ChevronLeftIcon, ChevronRightIcon } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, Legend,
+  Cell,
 } from 'recharts';
 import { summaryApi, expensesApi, type ExpenseResponse } from '@/api/endpoints';
+import { FinancialCalendarCard } from '@/components/FinancialCalendarCard';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -17,11 +18,10 @@ const MONTH_NAMES = [
   'Janeiro','Fevereiro','Março','Abril','Maio','Junho',
   'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro',
 ];
-const WEEKDAYS = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
 
-const PIE_COLORS = [
-  '#6366f1','#f59e0b','#10b981','#ef4444','#3b82f6',
-  '#ec4899','#8b5cf6','#14b8a6','#f97316','#84cc16',
+const RANKING_COLORS = [
+  '#6366f1', '#f59e0b', '#10b981', '#ef4444', '#3b82f6',
+  '#ec4899', '#8b5cf6', '#14b8a6', '#f97316', '#84cc16', '#64748b',
 ];
 
 function formatBRL(value: number) {
@@ -36,11 +36,6 @@ function formatPercent(value: number) {
   });
 }
 
-function formatBRLCompact(value: number) {
-  if (value >= 1000) return `R$${(value / 1000).toFixed(1)}k`;
-  return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 });
-}
-
 function monthStart(year: number, month: number) {
   return `${year}-${String(month).padStart(2, '0')}-01`;
 }
@@ -49,34 +44,31 @@ function monthEnd(year: number, month: number) {
   return `${year}-${String(month).padStart(2, '0')}-${last}`;
 }
 
-// group expenses by day-of-month
-function byDay(expenses: ExpenseResponse[]): Map<number, ExpenseResponse[]> {
-  const map = new Map<number, ExpenseResponse[]>();
-  for (const e of expenses) {
-    // date string is ISO "YYYY-MM-DD..." — parse day directly to avoid TZ shift
-    const day = parseInt(e.date.slice(8, 10), 10);
-    if (!map.has(day)) map.set(day, []);
-    map.get(day)!.push(e);
-  }
-  return map;
-}
+type ActiveFilter =
+  | { type: 'none' }
+  | { type: 'category'; value: string }
+  | { type: 'day'; value: number };
+
+type RankedCategoryRow = {
+  category: string;
+  total: number;
+  share: number;
+  placeholderKey?: string;
+};
 
 export default function DashboardPage() {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
-  const [selectedDay, setSelectedDay] = useState<number | null>(null);
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [activeFilter, setActiveFilter] = useState<ActiveFilter>({ type: 'none' });
 
   function prevMonth() {
-    setSelectedDay(null);
-    setSelectedCategory(null);
+    setActiveFilter({ type: 'none' });
     if (month === 1) { setYear(y => y - 1); setMonth(12); }
     else setMonth(m => m - 1);
   }
   function nextMonth() {
-    setSelectedDay(null);
-    setSelectedCategory(null);
+    setActiveFilter({ type: 'none' });
     if (month === 12) { setYear(y => y + 1); setMonth(1); }
     else setMonth(m => m + 1);
   }
@@ -120,33 +112,57 @@ export default function DashboardPage() {
     .toSorted((left, right) => right.total - left.total);
 
   const topCategoryData = categoryTotals
-    .slice(0, 10)
+    .slice(0, 9)
     .map(category => ({
       ...category,
       share: monthTotal > 0 ? category.total / monthTotal : 0,
     }));
 
   const hiddenCategoryTotal = categoryTotals
-    .slice(10)
+    .slice(9)
     .reduce((sum, category) => sum + category.total, 0);
 
-  const maxCategoryTotal = topCategoryData[0]?.total ?? 0;
-  const expensesByCategory = expenseList.reduce((map, expense) => {
-    for (const category of expense.categories ?? []) {
-      if (!map.has(category)) map.set(category, []);
-      map.get(category)!.push(expense);
-    }
-    return map;
-  }, new Map<string, ExpenseResponse[]>());
-  const categoryExpenses = selectedCategory !== null ? (expensesByCategory.get(selectedCategory) ?? []) : [];
+  const rankedCategoryData: RankedCategoryRow[] = [
+    ...topCategoryData,
+    ...(hiddenCategoryTotal > 0
+      ? [{
+          category: 'Outras categorias',
+          total: hiddenCategoryTotal,
+          share: monthTotal > 0 ? hiddenCategoryTotal / monthTotal : 0,
+        }]
+      : []),
+  ];
 
-  // calendar
-  const daysInMonth = new Date(year, month, 0).getDate();
-  const firstWeekday = new Date(year, month - 1, 1).getDay(); // 0=Sun
-  const expensesByDay = byDay(expenseList);
-  const today = now.getFullYear() === year && now.getMonth() + 1 === month ? now.getDate() : null;
+  const displayedCategoryData: RankedCategoryRow[] = [
+    ...rankedCategoryData,
+    ...Array.from({ length: Math.max(0, 10 - rankedCategoryData.length) }, (_, index) => ({
+      category: '—',
+      total: 0,
+      share: 0,
+      placeholderKey: `placeholder-${index}`,
+    })),
+  ];
 
-  const dayExpenses = selectedDay !== null ? (expensesByDay.get(selectedDay) ?? []) : [];
+  const maxCategoryTotal = rankedCategoryData[0]?.total ?? 0;
+  const filteredExpenses = expenseList.filter((expense) => {
+    if (activeFilter.type === 'none') return true;
+    if (activeFilter.type === 'category') return expense.categories?.includes(activeFilter.value) ?? false;
+    if (activeFilter.type === 'day') return parseInt(expense.date.slice(8, 10), 10) === activeFilter.value;
+    return true;
+  });
+  const filteredTotal = filteredExpenses.reduce((sum, expense) => sum + expense.amount, 0);
+
+  function getFilterTitle() {
+    if (activeFilter.type === 'category') return `Despesas da categoria ${activeFilter.value}`;
+    if (activeFilter.type === 'day') return `Despesas do dia ${String(activeFilter.value).padStart(2, '0')} de ${MONTH_NAMES[month - 1]}`;
+    return `Despesas de ${MONTH_NAMES[month - 1]} ${year}`;
+  }
+
+  function getFilterMeta() {
+    if (activeFilter.type === 'category') return `${filteredExpenses.length} ${filteredExpenses.length === 1 ? 'lançamento' : 'lançamentos'} — total: ${formatBRL(filteredTotal)}`;
+    if (activeFilter.type === 'day') return `${filteredExpenses.length} ${filteredExpenses.length === 1 ? 'lançamento' : 'lançamentos'} — total: ${formatBRL(filteredTotal)}`;
+    return `total: ${formatBRL(monthTotal)}`;
+  }
 
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-6">
@@ -168,7 +184,7 @@ export default function DashboardPage() {
 
       {/* summary cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <Card>
+        <Card className="h-full">
           <CardHeader><CardTitle className="text-sm text-muted-foreground">Total do mês</CardTitle></CardHeader>
           <CardContent><p className="text-2xl font-bold tabular-nums">{formatBRL(monthTotal)}</p></CardContent>
         </Card>
@@ -201,240 +217,130 @@ export default function DashboardPage() {
       )}
 
       {/* category pie + calendar side by side */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 items-stretch gap-4 xl:grid-cols-2">
         {/* by category */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm">Top 10 categorias de gastos</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {topCategoryData.length === 0
-              ? <p className="text-sm text-muted-foreground">Sem dados para o mês.</p>
-              : (
-                <>
-                  <div className="rounded-lg border bg-muted/20 p-3">
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                      <span>Mostrando {topCategoryData.length} de {categoryTotals.length} categorias</span>
-                      {hiddenCategoryTotal > 0 ? (
-                        <span>Outras categorias: {formatBRL(hiddenCategoryTotal)}</span>
-                      ) : null}
-                    </div>
-                    <ResponsiveContainer width="100%" height={240}>
-                      <PieChart>
-                        <Pie
-                          data={topCategoryData}
-                          dataKey="total"
-                          nameKey="category"
-                          cx="50%"
-                          cy="50%"
-                          innerRadius={52}
-                          outerRadius={84}
-                          paddingAngle={2}
-                          labelLine={false}
-                        >
-                          {topCategoryData.map((_entry, i) => (
-                            <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
-                          ))}
-                        </Pie>
-                        <Tooltip
-                          formatter={(value) => formatBRL(Number(value ?? 0))}
-                        />
-                        <Legend />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  </div>
+        <div className="h-full w-full min-w-0">
+          <Card className="h-full w-full min-w-0">
+            <CardHeader>
+              <CardTitle className="text-sm">Top 10 categorias de gastos</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-3">
+                {displayedCategoryData.map((category, index) => {
+                  const width = maxCategoryTotal > 0 ? (category.total / maxCategoryTotal) * 100 : 0;
+                  const isSelected = activeFilter.type === 'category' && activeFilter.value === category.category;
+                  const isAggregatedRow = category.category === 'Outras categorias';
+                  const isPlaceholderRow = category.category === '—';
 
-                  <div className="space-y-3">
-                    {topCategoryData.map((category, index) => {
-                      const width = maxCategoryTotal > 0 ? (category.total / maxCategoryTotal) * 100 : 0;
-                      const isSelected = selectedCategory === category.category;
-
-                      return (
-                        <div key={category.category} className="space-y-1.5 min-w-0">
-                          <button
-                            type="button"
-                            onClick={() => setSelectedCategory(isSelected ? null : category.category)}
-                            className="flex w-full items-start justify-between gap-3 min-w-0 rounded-md text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                            aria-expanded={isSelected}
-                          >
-                            <div className="min-w-0 flex flex-1 items-start gap-2">
-                              <span className="pt-0.5 text-xs font-medium text-muted-foreground tabular-nums">
-                                {String(index + 1).padStart(2, '0')}
-                              </span>
-                              <div className="min-w-0 flex-1">
-                                <div className="flex items-center gap-2 min-w-0">
-                                  <span className="truncate text-sm font-medium">{category.category}</span>
-                                  <ChevronDownIcon className={[
-                                    'size-4 shrink-0 text-muted-foreground transition-transform',
-                                    isSelected ? 'rotate-180' : '',
-                                  ].join(' ')} />
-                                </div>
-                                <p className="text-xs text-muted-foreground">
-                                  {formatPercent(category.share)} do total do mês
-                                </p>
-                              </div>
+                  return (
+                    <div key={category.placeholderKey ?? category.category} className="space-y-1.5 min-w-0">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (isAggregatedRow || isPlaceholderRow) return;
+                          setActiveFilter(isSelected ? { type: 'none' } : { type: 'category', value: category.category });
+                        }}
+                        className="flex w-full items-start justify-between gap-3 min-w-0 rounded-md text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        aria-pressed={isSelected}
+                        disabled={isAggregatedRow || isPlaceholderRow}
+                      >
+                        <div className="min-w-0 flex flex-1 items-start gap-2">
+                          <span className="pt-0.5 text-xs font-medium text-muted-foreground tabular-nums">
+                            {String(index + 1).padStart(2, '0')}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="truncate text-sm font-medium">{category.category}</span>
                             </div>
-                            <div className="text-right flex-shrink-0">
-                              <p className="text-sm font-semibold tabular-nums">{formatBRL(category.total)}</p>
-                            </div>
-                          </button>
-                          <div className="h-2 rounded-full bg-muted overflow-hidden">
-                            <div
-                              className="h-full rounded-full"
-                              style={{
-                                width: `${width}%`,
-                                backgroundColor: PIE_COLORS[index % PIE_COLORS.length],
-                              }}
-                            />
+                            <p className="text-xs text-muted-foreground">
+                              {isPlaceholderRow
+                                ? '—'
+                                : `${formatPercent(category.share)} do total do mês${isAggregatedRow ? ' (agregado)' : ''}`}
+                            </p>
                           </div>
-                          {isSelected && (
-                            <div className="rounded-md border bg-muted/20 p-3 space-y-2">
-                              <p className="text-xs font-medium text-muted-foreground">
-                                {category.category} {' '}— {formatBRL(categoryExpenses.reduce((sum, expense) => sum + expense.amount, 0))}
-                              </p>
-                              {categoryExpenses.length === 0
-                                ? <p className="text-xs text-muted-foreground">Nenhuma despesa encontrada para esta categoria.</p>
-                                : categoryExpenses
-                                  .toSorted((left, right) => right.date.localeCompare(left.date))
-                                  .map(expense => (
-                                    <div key={expense.id} className="flex items-center justify-between gap-2">
-                                      <div className="min-w-0 flex-1">
-                                        <p className="truncate text-xs font-medium">{expense.description}</p>
-                                        <p className="text-[11px] text-muted-foreground">
-                                          {new Date(expense.date).toLocaleDateString('pt-BR')}
-                                        </p>
-                                      </div>
-                                      <div className="flex gap-1 flex-shrink-0">
-                                        {expense.tagCodes?.map(tag => (
-                                          <Badge key={tag} variant="outline" className="text-[10px] px-1 py-0">{tag}</Badge>
-                                        ))}
-                                      </div>
-                                      <span className="text-xs font-mono tabular-nums flex-shrink-0">{formatBRL(expense.amount)}</span>
-                                    </div>
-                                  ))}
-                            </div>
-                          )}
                         </div>
-                      );
-                    })}
-                  </div>
-                </>
-              )}
-          </CardContent>
-        </Card>
-
-        {/* calendar */}
-        <Card>
-          <CardHeader><CardTitle className="text-sm">Calendário de gastos</CardTitle></CardHeader>
-          <CardContent className="px-3 pb-3">
-            {/* weekday headers */}
-            <div className="grid grid-cols-7 mb-1">
-              {WEEKDAYS.map(d => (
-                <div key={d} className="text-center text-xs text-muted-foreground py-1">{d}</div>
-              ))}
-            </div>
-            {/* days grid */}
-            <div className="grid grid-cols-7 gap-0.5">
-              {/* leading empty cells */}
-              {Array.from({ length: firstWeekday }).map((_, i) => (
-                <div key={`e-${i}`} />
-              ))}
-              {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
-                const dayExps = expensesByDay.get(day);
-                const total = dayExps?.reduce((s, e) => s + e.amount, 0) ?? 0;
-                const isToday = day === today;
-                const isSelected = day === selectedDay;
-                const hasExpenses = !!dayExps?.length;
-                return (
-                  <button
-                    key={day}
-                    type="button"
-                    onClick={() => setSelectedDay(isSelected ? null : day)}
-                    className={[
-                      'relative flex flex-col items-center rounded-md py-1 text-xs transition-colors',
-                      'hover:bg-accent',
-                      isSelected ? 'bg-primary text-primary-foreground hover:bg-primary/90' : '',
-                      isToday && !isSelected ? 'ring-1 ring-primary' : '',
-                    ].join(' ')}
-                  >
-                    <span className="font-medium leading-none">{day}</span>
-                    {hasExpenses && (
-                      <span className={[
-                        'mt-0.5 text-[10px] tabular-nums leading-none',
-                        isSelected ? 'text-primary-foreground/80' : 'text-muted-foreground',
-                      ].join(' ')}>
-                        {formatBRLCompact(total)}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* day detail */}
-            {selectedDay !== null && (
-              <div className="mt-3 border-t pt-3 space-y-1">
-                <p className="text-xs font-medium text-muted-foreground">
-                  {selectedDay} de {MONTH_NAMES[month - 1]}
-                  {' '}— {formatBRL(dayExpenses.reduce((s, e) => s + e.amount, 0))}
-                </p>
-                {dayExpenses.length === 0
-                  ? <p className="text-xs text-muted-foreground">Nenhuma despesa.</p>
-                  : dayExpenses.map(e => (
-                    <div key={e.id} className="flex items-center justify-between gap-2">
-                      <span className="text-xs truncate flex-1">{e.description}</span>
-                      <div className="flex gap-1 flex-shrink-0">
-                        {e.tagCodes?.map(t => (
-                          <Badge key={t} variant="outline" className="text-[10px] px-1 py-0">{t}</Badge>
-                        ))}
+                        <div className="text-right flex-shrink-0">
+                          <p className="text-sm font-semibold tabular-nums">{isPlaceholderRow ? '—' : formatBRL(category.total)}</p>
+                        </div>
+                      </button>
+                      <div className="h-2 rounded-full bg-muted overflow-hidden">
+                        <div
+                          className="h-full rounded-full"
+                          style={{
+                            width: `${width}%`,
+                            backgroundColor: RANKING_COLORS[index % RANKING_COLORS.length],
+                          }}
+                        />
                       </div>
-                      <span className="text-xs font-mono tabular-nums flex-shrink-0">{formatBRL(e.amount)}</span>
                     </div>
-                  ))
-                }
+                  );
+                })}
               </div>
-            )}
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        </div>
+
+        <FinancialCalendarCard
+          className="h-full"
+          style={{ height: '664px' }}
+          year={year}
+          month={month}
+          expenses={expenseList}
+          selectedDay={activeFilter.type === 'day' ? activeFilter.value : null}
+          onDaySelect={(day) => setActiveFilter(day === null ? { type: 'none' } : { type: 'day', value: day })}
+        />
       </div>
 
       {/* expense list */}
       <Card>
         <CardHeader>
           <CardTitle className="text-sm">
-            Despesas de {MONTH_NAMES[month - 1]} {year}
+            {getFilterTitle()}
             <span className="ml-2 text-muted-foreground font-normal">
-              — total: {formatBRL(monthTotal)}
+              — {getFilterMeta()}
             </span>
           </CardTitle>
         </CardHeader>
         <CardContent className="p-0">
+          {activeFilter.type !== 'none' && (
+            <div className="flex items-center justify-between border-b px-4 py-3 text-sm">
+              <p className="text-muted-foreground">Resultado filtrado a partir da seleção no Top 10 ou no calendário.</p>
+              <Button type="button" variant="outline" size="sm" onClick={() => setActiveFilter({ type: 'none' })}>
+                Limpar seleção
+              </Button>
+            </div>
+          )}
           {isLoading
             ? <p className="px-4 py-3 text-sm text-muted-foreground">Carregando...</p>
             : (
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Data</TableHead>
-                    <TableHead>Descrição</TableHead>
+                    <TableHead>Lançamento</TableHead>
                     <TableHead>Tags</TableHead>
                     <TableHead className="text-right">Valor</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {expenseList.length === 0 && (
+                  {filteredExpenses.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
-                        Nenhuma despesa neste mês.
+                      <TableCell colSpan={3} className="text-center text-muted-foreground py-8">
+                        Nenhuma despesa encontrada para a seleção atual.
                       </TableCell>
                     </TableRow>
                   )}
-                  {expenseList.map(e => (
+                  {filteredExpenses
+                    .toSorted((left, right) => right.date.localeCompare(left.date))
+                    .map(e => (
                     <TableRow key={e.id}>
-                      <TableCell className="whitespace-nowrap">
-                        {new Date(e.date).toLocaleDateString('pt-BR')}
+                      <TableCell>
+                        <div className="space-y-1">
+                          <p className="whitespace-nowrap text-xs text-muted-foreground">
+                            {new Date(e.date).toLocaleDateString('pt-BR')}
+                          </p>
+                          <p className="font-medium leading-snug">{e.description}</p>
+                        </div>
                       </TableCell>
-                      <TableCell>{e.description}</TableCell>
                       <TableCell>
                         <div className="flex flex-wrap gap-1">
                           {e.tagCodes?.length

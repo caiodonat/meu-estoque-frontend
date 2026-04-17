@@ -6,7 +6,6 @@ import {
   FileTextIcon,
   LayoutDashboardIcon,
   ReceiptIcon,
-  CalendarIcon,
   TagIcon,
   UsersIcon,
   LogOutIcon,
@@ -25,7 +24,6 @@ const navItems = [
   { to: '/veiculos', label: 'Veículos', icon: CarFrontIcon, exact: false },
   { to: '/financeiro', label: 'Financeiro', icon: LayoutDashboardIcon, exact: true },
   { to: '/financeiro/despesas', label: 'Gastos', icon: ReceiptIcon, exact: false },
-  { to: '/financeiro/calendar', label: 'Calendário', icon: CalendarIcon, exact: false },
   { to: '/financeiro/categories', label: 'Categorias', icon: TagIcon, exact: false },
 ] as const;
 
