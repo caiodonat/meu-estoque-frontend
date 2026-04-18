@@ -1,36 +1,46 @@
 import type { CSSProperties } from 'react';
-import type { ExpenseResponse } from '@/api/endpoints';
 import { Card } from '@/components/ui/card';
 
 const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
 function formatBRLCompact(value: number) {
-  if (value >= 1000) return `R$${(value / 1000).toFixed(1)}k`;
-  return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 });
+  const absoluteValue = Math.abs(value);
+  const prefix = value < 0 ? '-' : '';
+
+  if (absoluteValue >= 1000) return `${prefix}R$${(absoluteValue / 1000).toFixed(1)}k`;
+  return `${prefix}${absoluteValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })}`;
 }
 
 function formatDayMobileSummary(value: number) {
-  if (value >= 1000) return `${(value / 1000).toFixed(1)}k`;
-  return Math.round(value).toLocaleString('pt-BR');
+  const absoluteValue = Math.abs(value);
+  const prefix = value < 0 ? '-' : '';
+
+  if (absoluteValue >= 1000) return `${prefix}${(absoluteValue / 1000).toFixed(1)}k`;
+  return `${prefix}${Math.round(absoluteValue).toLocaleString('pt-BR')}`;
 }
 
-function getDaySummaryItems(expenses: ExpenseResponse[]): string[] {
-  const categories = Array.from(new Set(expenses.flatMap((expense) => expense.categories ?? []).filter(Boolean)));
-  if (categories.length > 0) return categories;
-
-  const tags = Array.from(new Set(expenses.flatMap((expense) => expense.tagCodes ?? []).filter(Boolean)));
-  if (tags.length > 0) return tags;
-
-  return Array.from(new Set(expenses.map((expense) => expense.description).filter(Boolean)));
+export interface FinancialCalendarItem {
+  id: string;
+  date: string;
+  amount: number;
+  description: string;
+  summaryItems?: string[];
 }
 
-function byDay(expenses: ExpenseResponse[]): Map<number, ExpenseResponse[]> {
-  const map = new Map<number, ExpenseResponse[]>();
+function getDaySummaryItems(items: FinancialCalendarItem[]): string[] {
+  const explicitItems = Array.from(new Set(items.flatMap((item) => item.summaryItems ?? []).filter(Boolean)));
+  if (explicitItems.length > 0) return explicitItems;
 
-  for (const expense of expenses) {
-    const day = parseInt(expense.date.slice(8, 10), 10);
+  return Array.from(new Set(items.map((item) => item.description).filter(Boolean)));
+}
+
+function byDay(items: FinancialCalendarItem[]): Map<number, FinancialCalendarItem[]> {
+  const map = new Map<number, FinancialCalendarItem[]>();
+
+  for (const item of items) {
+    const day = parseInt(item.date.slice(8, 10), 10);
     if (!map.has(day)) map.set(day, []);
-    map.get(day)!.push(expense);
+    map.get(day)!.push(item);
   }
 
   return map;
@@ -39,7 +49,7 @@ function byDay(expenses: ExpenseResponse[]): Map<number, ExpenseResponse[]> {
 interface Props {
   year: number;
   month: number;
-  expenses: ExpenseResponse[];
+  items: FinancialCalendarItem[];
   className?: string;
   style?: CSSProperties;
   title?: string;
@@ -50,10 +60,10 @@ interface Props {
 export function FinancialCalendarCard({
   year,
   month,
-  expenses,
+  items,
   className,
   style,
-  title = 'Calendário de gastos',
+  title = 'Calendário financeiro',
   selectedDay = null,
   onDaySelect,
 }: Props) {
@@ -61,7 +71,7 @@ export function FinancialCalendarCard({
 
   const daysInMonth = new Date(year, month, 0).getDate();
   const firstWeekday = new Date(year, month - 1, 1).getDay();
-  const expensesByDay = byDay(expenses);
+  const itemsByDay = byDay(items);
   const today = now.getFullYear() === year && now.getMonth() + 1 === month ? now.getDate() : null;
   const weekCount = Math.ceil((firstWeekday + daysInMonth) / 7);
   const desktopCalendarGridStyle: CSSProperties = {
@@ -104,14 +114,19 @@ export function FinancialCalendarCard({
                       return <div key={`empty-${cellIndex}`} className="h-full min-h-[56px] sm:min-h-[72px] lg:min-h-0" />;
                     }
 
-                    const dayExpensesList = expensesByDay.get(day);
-                    const total = dayExpensesList?.reduce((sum, expense) => sum + expense.amount, 0) ?? 0;
+                    const dayItems = itemsByDay.get(day);
+                    const total = dayItems?.reduce((sum, item) => sum + item.amount, 0) ?? 0;
                     const isToday = day === today;
                     const isSelected = day === selectedDay;
-                    const hasExpenses = Boolean(dayExpensesList?.length);
-                    const daySummaryItems = dayExpensesList ? getDaySummaryItems(dayExpensesList) : [];
+                    const hasItems = Boolean(dayItems?.length);
+                    const daySummaryItems = dayItems ? getDaySummaryItems(dayItems) : [];
                     const visibleSummaryItems = daySummaryItems.slice(0, 3);
                     const hiddenSummaryCount = Math.max(0, daySummaryItems.length - visibleSummaryItems.length);
+                    const amountToneClass = total > 0
+                      ? (isSelected ? 'text-primary-foreground/80' : 'text-emerald-700')
+                      : total < 0
+                        ? (isSelected ? 'text-primary-foreground/80' : 'text-rose-700')
+                        : (isSelected ? 'text-primary-foreground/80' : 'text-muted-foreground');
 
                     return (
                       <button
@@ -128,17 +143,17 @@ export function FinancialCalendarCard({
                         <div className="flex h-full w-full flex-col">
                           <div className="flex items-start justify-between gap-2">
                             <span className="text-xs font-semibold leading-none sm:text-sm">{day}</span>
-                            {hasExpenses && (
+                            {hasItems && (
                               <>
                                 <span className={[
                                   'text-[10px] tabular-nums leading-none sm:hidden',
-                                  isSelected ? 'text-primary-foreground/80' : 'text-muted-foreground',
+                                  amountToneClass,
                                 ].join(' ')}>
                                   {formatDayMobileSummary(total)}
                                 </span>
                                 <span className={[
                                   'hidden text-[11px] tabular-nums leading-snug sm:inline',
-                                  isSelected ? 'text-primary-foreground/80' : 'text-muted-foreground',
+                                  amountToneClass,
                                 ].join(' ')}>
                                   {formatBRLCompact(total)}
                                 </span>
@@ -146,7 +161,7 @@ export function FinancialCalendarCard({
                             )}
                           </div>
                           <div className="mt-1 flex w-full flex-1 flex-col items-end gap-1 overflow-hidden text-right">
-                            {hasExpenses && (
+                            {hasItems && (
                               visibleSummaryItems.map((item) => (
                                 <span
                                   key={item}

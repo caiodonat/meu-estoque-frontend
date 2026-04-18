@@ -3,10 +3,14 @@ import { XIcon } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import type { ExpenseTagResponse } from '@/api/endpoints';
+
+interface TagOption {
+  code: string;
+  categoryLabel: string;
+}
 
 interface Props {
-  allTags: ExpenseTagResponse[];
+  allTags: TagOption[];
   selected: string[];
   onChange: (tags: string[]) => void;
 }

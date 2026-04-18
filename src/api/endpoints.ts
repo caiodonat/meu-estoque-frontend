@@ -256,6 +256,85 @@ export const expensesApi = {
   delete: (id: string) => api.delete<void>(`/expenses/${id}`),
 };
 
+// --- Positive entries ---
+
+export interface PositiveEntryResponse {
+  id: string;
+  description: string;
+  amount: number;
+  date: string;
+  positiveEntryCategoryId: string;
+  positiveEntryCategoryLabel: string;
+  serviceOrderId?: string;
+  serviceOrderBudgetNumber?: string;
+  tagCodes: string[];
+  createdByUserId: string;
+  isDeleted: boolean;
+}
+
+export interface CreatePositiveEntryRequest {
+  description: string;
+  amount: number;
+  date: string;
+  positiveEntryCategoryId: string;
+  serviceOrderId?: string;
+  tagCodes?: string[];
+}
+
+export interface PositiveEntryFilters {
+  startDate?: string;
+  endDate?: string;
+  tags?: string[];
+  categories?: string[];
+  includeDeleted?: boolean;
+}
+
+export interface PositiveEntryCategoryResponse {
+  id: string;
+  label: string;
+  nature: string;
+}
+
+export interface PositiveEntryTagResponse {
+  code: string;
+  positiveEntryCategoryId: string;
+  categoryLabel: string;
+  isActive: boolean;
+}
+
+export const positiveEntriesApi = {
+  list: (filters?: PositiveEntryFilters) => {
+    const params = new URLSearchParams();
+    if (filters?.startDate) params.set('startDate', filters.startDate);
+    if (filters?.endDate) params.set('endDate', filters.endDate);
+    if (filters?.tags?.length) params.set('tags', filters.tags.join(','));
+    if (filters?.categories?.length) params.set('categories', filters.categories.join(','));
+    if (filters?.includeDeleted) params.set('includeDeleted', 'true');
+    const qs = params.size > 0 ? `?${params}` : '';
+    return api.get<PositiveEntryResponse[]>(`/positive-entries${qs}`);
+  },
+  create: (data: CreatePositiveEntryRequest) => api.post<CreateEntityResponse>('/positive-entries', data),
+  update: (id: string, data: CreatePositiveEntryRequest) => api.put<void>(`/positive-entries/${id}`, data),
+  delete: (id: string) => api.delete<void>(`/positive-entries/${id}`),
+  restore: (id: string) => api.post<void>(`/positive-entries/${id}/restore`, {}),
+};
+
+export const positiveEntryCategoriesApi = {
+  list: () => api.get<PositiveEntryCategoryResponse[]>('/positive-entries/categories'),
+};
+
+export const positiveEntryTagsApi = {
+  list: (includeInactive?: boolean) => {
+    const qs = includeInactive ? '?includeInactive=true' : '';
+    return api.get<PositiveEntryTagResponse[]>(`/positive-entries/tags${qs}`);
+  },
+  create: (code: string, positiveEntryCategoryId: string) =>
+    api.post<CreateEntityResponse>('/positive-entries/tags', { code, positiveEntryCategoryId }),
+  update: (code: string, newCode: string, positiveEntryCategoryId: string, isActive: boolean) =>
+    api.put<void>(`/positive-entries/tags/${code}`, { newCode, positiveEntryCategoryId, isActive }),
+  delete: (code: string) => api.delete<void>(`/positive-entries/tags/${code}`),
+};
+
 // --- Categories ---
 
 export interface CategoryTag {

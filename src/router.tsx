@@ -8,7 +8,6 @@ const PrintServiceOrderPage = lazy(() => import('./routes/PrintServiceOrderPage.
 const CustomersPage = lazy(() => import('./routes/CustomersPage.tsx'));
 const VehiclesPage = lazy(() => import('./routes/VehiclesPage.tsx'));
 const LoginPage = lazy(() => import('./routes/LoginPage.tsx'));
-const ExpensesPage = lazy(() => import('./routes/ExpensesPage.tsx'));
 const DashboardPage = lazy(() => import('./routes/DashboardPage.tsx'));
 const CategoriesPage = lazy(() => import('./routes/CategoriesPage.tsx'));
 
@@ -22,6 +21,7 @@ const authenticatedRoute = createRoute({
   component: AppLayout,
   beforeLoad: async () => {
     try {
+		// return true;
       await authApi.me();
     } catch {
       throw redirect({ to: '/login' });
@@ -76,16 +76,6 @@ export const serviceOrdersRoute = createRoute({
   ),
 });
 
-export const expensesRoute = createRoute({
-  getParentRoute: () => authenticatedRoute,
-  path: '/financeiro/despesas',
-  component: () => (
-    <Suspense>
-      <ExpensesPage />
-    </Suspense>
-  ),
-});
-
 export const customersRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: '/clientes',
@@ -94,14 +84,6 @@ export const customersRoute = createRoute({
       <CustomersPage />
     </Suspense>
   ),
-});
-
-export const budgetsRoute = createRoute({
-  getParentRoute: () => authenticatedRoute,
-  path: '/orcamentos',
-  beforeLoad: () => {
-    throw redirect({ to: '/ordens-servico' });
-  },
 });
 
 export const vehiclesRoute = createRoute({
@@ -119,17 +101,9 @@ export const dashboardRoute = createRoute({
   path: '/financeiro',
   component: () => (
     <Suspense>
-      <DashboardPage />
+      <DashboardPage initialMode="combined" />
     </Suspense>
   ),
-});
-
-export const calendarRoute = createRoute({
-  getParentRoute: () => authenticatedRoute,
-  path: '/financeiro/calendar',
-  beforeLoad: () => {
-    throw redirect({ to: '/financeiro' });
-  },
 });
 
 export const categoriesRoute = createRoute({
@@ -145,7 +119,7 @@ export const categoriesRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   loginRoute,
   printServiceOrderRoute,
-  authenticatedRoute.addChildren([homeRoute, serviceOrdersRoute, customersRoute, vehiclesRoute, budgetsRoute, expensesRoute, dashboardRoute, calendarRoute, categoriesRoute]),
+  authenticatedRoute.addChildren([homeRoute, serviceOrdersRoute, customersRoute, vehiclesRoute, dashboardRoute, categoriesRoute]),
 ]);
 
 export const router = createRouter({ routeTree });

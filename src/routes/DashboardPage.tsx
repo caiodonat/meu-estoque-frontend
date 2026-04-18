@@ -1,127 +1,273 @@
-import { useEffect, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { ChevronLeftIcon, ChevronRightIcon } from 'lucide-react';
-import {
-  BarChart, Bar, XAxis, Tooltip, ResponsiveContainer,
-  Cell,
-} from 'recharts';
-import { summaryApi, expensesApi, type ExpenseResponse } from '@/api/endpoints';
+import { useEffect, useMemo, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ChevronLeftIcon, ChevronRightIcon, PencilIcon, Trash2Icon } from 'lucide-react';
+import { expensesApi, positiveEntriesApi, type ExpenseResponse, type PositiveEntryResponse } from '@/api/endpoints';
+import type { FinancialCalendarItem } from '@/components/FinancialCalendarCard';
 import { FinancialCalendarCard } from '@/components/FinancialCalendarCard';
+import { EditExpenseDialog } from '@/components/EditExpenseDialog';
+import { EditPositiveEntryDialog } from '@/components/EditPositiveEntryDialog';
+import { NewExpenseDialog } from '@/components/NewExpenseDialog';
+import { NewPositiveEntryDialog } from '@/components/NewPositiveEntryDialog';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
-} from '@/components/ui/table';
-import { Badge } from '@/components/ui/badge';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { toast } from 'sonner';
 
 const MONTH_NAMES = [
-  'Janeiro','Fevereiro','Março','Abril','Maio','Junho',
-  'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro',
+  'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+  'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',
 ];
 
-const RANKING_COLORS = [
-  '#6366f1', '#f59e0b', '#10b981', '#ef4444', '#3b82f6',
-  '#ec4899', '#8b5cf6', '#14b8a6', '#f97316', '#84cc16', '#64748b',
-];
+const RANKING_COLORS = ['#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16', '#22c55e'];
+const ENTRY_RANKING_COLORS = ['#10b981', '#14b8a6', '#06b6d4', '#3b82f6', '#6366f1', '#8b5cf6'];
+
+type MovementMode = 'expenses' | 'entries' | 'combined';
+type MovementType = 'expense' | 'entry';
+
+type ActiveFilter =
+  | { type: 'none' }
+  | { type: 'day'; value: number }
+  | { type: 'expense-category'; value: string }
+  | { type: 'entry-category'; value: string };
+
+type FinancialMovement = {
+  id: string;
+  type: MovementType;
+  date: string;
+  description: string;
+  signedAmount: number;
+  absoluteAmount: number;
+  classification: string;
+  origin: string;
+  tagCodes: string[];
+  summaryItems: string[];
+  expense?: ExpenseResponse;
+  entry?: PositiveEntryResponse;
+};
+
+type RankingRow = {
+  label: string;
+  total: number;
+};
+
+interface Props {
+  initialMode?: MovementMode;
+}
 
 function formatBRL(value: number) {
   return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
 
-function formatPercent(value: number) {
-  return value.toLocaleString('pt-BR', {
-    style: 'percent',
-    minimumFractionDigits: 1,
-    maximumFractionDigits: 1,
-  });
+function formatSignedBRL(value: number) {
+  const absolute = Math.abs(value).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  return value < 0 ? `- ${absolute}` : absolute;
 }
 
 function monthStart(year: number, month: number) {
   return `${year}-${String(month).padStart(2, '0')}-01`;
 }
+
 function monthEnd(year: number, month: number) {
   const last = new Date(year, month, 0).getDate();
   return `${year}-${String(month).padStart(2, '0')}-${last}`;
 }
 
-type ActiveFilter =
-  | { type: 'none' }
-  | { type: 'category'; value: string }
-  | { type: 'other-categories' }
-  | { type: 'day'; value: number };
+function buildExpenseMovements(expenses: ExpenseResponse[]): FinancialMovement[] {
+  return expenses.map((expense) => {
+    const classification = expense.categories?.[0] ?? 'Sem categoria';
+    const summaryItems = expense.categories?.length
+      ? expense.categories
+      : expense.tagCodes?.length
+        ? expense.tagCodes
+        : [expense.description];
 
-type RankedCategoryRow = {
-  category: string;
-  total: number;
-  share: number;
-  placeholderKey?: string;
-};
+    return {
+      id: expense.id,
+      type: 'expense',
+      date: expense.date,
+      description: expense.description,
+      signedAmount: -expense.amount,
+      absoluteAmount: expense.amount,
+      classification,
+      origin: classification,
+      tagCodes: expense.tagCodes ?? [],
+      summaryItems,
+      expense,
+    };
+  });
+}
 
-export default function DashboardPage() {
+function buildEntryMovements(entries: PositiveEntryResponse[]): FinancialMovement[] {
+  return entries
+    .filter((entry) => !entry.isDeleted)
+    .map((entry) => ({
+      id: entry.id,
+      type: 'entry',
+      date: entry.date,
+      description: entry.description,
+      signedAmount: entry.amount,
+      absoluteAmount: entry.amount,
+      classification: entry.positiveEntryCategoryLabel,
+      origin: entry.serviceOrderBudgetNumber ? `OS ${entry.serviceOrderBudgetNumber}` : 'Avulsa',
+      tagCodes: entry.tagCodes,
+      summaryItems: entry.tagCodes.length > 0 ? entry.tagCodes : [entry.positiveEntryCategoryLabel],
+      entry,
+    }));
+}
+
+function sortMovements(movements: FinancialMovement[]) {
+  return movements.toSorted((left, right) => {
+    const byDate = right.date.localeCompare(left.date);
+    if (byDate !== 0) return byDate;
+    return right.id.localeCompare(left.id);
+  });
+}
+
+function aggregateRankings(movements: FinancialMovement[], type: MovementType): RankingRow[] {
+  const totals = new Map<string, number>();
+
+  for (const movement of movements) {
+    if (movement.type !== type) continue;
+    const current = totals.get(movement.classification) ?? 0;
+    totals.set(movement.classification, current + movement.absoluteAmount);
+  }
+
+  return Array.from(totals.entries())
+    .map(([label, total]) => ({ label, total }))
+    .toSorted((left, right) => right.total - left.total);
+}
+
+function getPageTitle(mode: MovementMode) {
+  if (mode === 'expenses') return 'Movimentações Financeiras — Gastos';
+  if (mode === 'entries') return 'Movimentações Financeiras — Entradas';
+  return 'Movimentações Financeiras';
+}
+
+function getPageDescription(mode: MovementMode) {
+  if (mode === 'expenses') return 'Visualize os gastos do mês com calendário, ranking e ações rápidas.';
+  if (mode === 'entries') return 'Visualize as entradas do mês com calendário, ranking e ações rápidas.';
+  return 'Acompanhe entradas, gastos e saldo em uma única visão operacional.';
+}
+
+function getListTitle(mode: MovementMode, activeFilter: ActiveFilter, year: number, month: number) {
+  if (activeFilter.type === 'expense-category') return `Gastos na categoria ${activeFilter.value}`;
+  if (activeFilter.type === 'entry-category') return `Entradas na categoria ${activeFilter.value}`;
+  if (activeFilter.type === 'day') return `Movimentações do dia ${String(activeFilter.value).padStart(2, '0')} de ${MONTH_NAMES[month - 1]}`;
+  if (mode === 'expenses') return `Gastos de ${MONTH_NAMES[month - 1]} ${year}`;
+  if (mode === 'entries') return `Entradas de ${MONTH_NAMES[month - 1]} ${year}`;
+  return `Movimentações de ${MONTH_NAMES[month - 1]} ${year}`;
+}
+
+function RankingCard({
+  title,
+  rows,
+  selectedValue,
+  emptyMessage,
+  onToggle,
+  colorPalette,
+}: {
+  title: string;
+  rows: RankingRow[];
+  selectedValue: string | null;
+  emptyMessage: string;
+  onToggle: (value: string) => void;
+  colorPalette: string[];
+}) {
+  const maxTotal = rows[0]?.total ?? 0;
+
+  return (
+    <Card className="h-full">
+      <CardHeader>
+        <CardTitle className="text-sm">{title}</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {rows.length === 0 && <p className="text-sm text-muted-foreground">{emptyMessage}</p>}
+
+        {rows.map((row, index) => {
+          const width = maxTotal > 0 ? (row.total / maxTotal) * 100 : 0;
+          const isSelected = selectedValue === row.label;
+
+          return (
+            <button
+              key={row.label}
+              type="button"
+              onClick={() => onToggle(row.label)}
+              className={[
+                'flex w-full flex-col gap-1.5 rounded-lg border border-transparent p-2 text-left transition-colors',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+                'hover:bg-muted/40',
+                isSelected ? 'border-primary/35 bg-accent shadow-sm ring-1 ring-inset ring-primary/25' : '',
+              ].join(' ')}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className={['text-xs font-medium tabular-nums', isSelected ? 'text-primary' : 'text-muted-foreground'].join(' ')}>
+                      {String(index + 1).padStart(2, '0')}
+                    </span>
+                    <span className="truncate text-sm font-medium">{row.label}</span>
+                  </div>
+                </div>
+                <span className={['text-sm font-semibold tabular-nums', isSelected ? 'text-primary' : ''].join(' ')}>
+                  {formatBRL(row.total)}
+                </span>
+              </div>
+              <div className={['h-2 w-full overflow-hidden rounded-full', isSelected ? 'bg-primary/15' : 'bg-muted'].join(' ')}>
+                <div
+                  className="h-full rounded-full transition-all"
+                  style={{
+                    width: `${width}%`,
+                    backgroundColor: colorPalette[index % colorPalette.length],
+                  }}
+                />
+              </div>
+            </button>
+          );
+        })}
+      </CardContent>
+    </Card>
+  );
+}
+
+export default function DashboardPage({ initialMode = 'combined' }: Props) {
+  const queryClient = useQueryClient();
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
+  const [mode, setMode] = useState<MovementMode>(initialMode);
   const [activeFilter, setActiveFilter] = useState<ActiveFilter>({ type: 'none' });
-  const topTenWrapperRef = useRef<HTMLDivElement | null>(null);
-  const [calendarHeight, setCalendarHeight] = useState<number | null>(null);
+  const [editingExpense, setEditingExpense] = useState<ExpenseResponse | null>(null);
+  const [editingEntry, setEditingEntry] = useState<PositiveEntryResponse | null>(null);
 
   useEffect(() => {
-    if (typeof window === 'undefined') return undefined;
-
-    const mediaQuery = window.matchMedia('(min-width: 1280px)');
-
-    const updateCalendarHeight = () => {
-      const wrapper = topTenWrapperRef.current;
-
-      if (!wrapper || !mediaQuery.matches) {
-        setCalendarHeight(null);
-        return;
-      }
-
-      setCalendarHeight(Math.round(wrapper.getBoundingClientRect().height));
-    };
-
-    updateCalendarHeight();
-
-    const resizeObserver = new ResizeObserver(() => {
-      updateCalendarHeight();
-    });
-
-    const wrapper = topTenWrapperRef.current;
-    if (wrapper) resizeObserver.observe(wrapper);
-
-    mediaQuery.addEventListener('change', updateCalendarHeight);
-    window.addEventListener('resize', updateCalendarHeight);
-
-    return () => {
-      resizeObserver.disconnect();
-      mediaQuery.removeEventListener('change', updateCalendarHeight);
-      window.removeEventListener('resize', updateCalendarHeight);
-    };
-  }, []);
+    setMode(initialMode);
+    setActiveFilter({ type: 'none' });
+  }, [initialMode]);
 
   function prevMonth() {
     setActiveFilter({ type: 'none' });
-    if (month === 1) { setYear(y => y - 1); setMonth(12); }
-    else setMonth(m => m - 1);
+    if (month === 1) {
+      setYear((current) => current - 1);
+      setMonth(12);
+      return;
+    }
+
+    setMonth((current) => current - 1);
   }
+
   function nextMonth() {
     setActiveFilter({ type: 'none' });
-    if (month === 12) { setYear(y => y + 1); setMonth(1); }
-    else setMonth(m => m + 1);
+    if (month === 12) {
+      setYear((current) => current + 1);
+      setMonth(1);
+      return;
+    }
+
+    setMonth((current) => current + 1);
   }
 
-  const { data: monthly = [] } = useQuery({
-    queryKey: ['summary', 'monthly'],
-    queryFn: summaryApi.monthly,
-  });
-
-  const { data: byCategory = [] } = useQuery({
-    queryKey: ['summary', 'byCategory', year, month],
-    queryFn: () => summaryApi.byCategory(year, month),
-  });
-
-  const { data: expenses = [], isLoading } = useQuery({
+  const { data: expenses = [], isLoading: expensesLoading } = useQuery({
     queryKey: ['expenses', 'dashboard', year, month],
     queryFn: () => expensesApi.list({
       startDate: monthStart(year, month),
@@ -129,292 +275,354 @@ export default function DashboardPage() {
     }),
   });
 
-  const expenseList = expenses as ExpenseResponse[];
-
-  // ---- derived ----
-  const monthTotal = expenseList.reduce((s, e) => s + e.amount, 0);
-  const noTagCount = expenseList.filter(e => !e.tagCodes?.length).length;
-
-  // evolution — compact inline bars
-  const evolutionData = [...monthly]
-    .sort((a, b) => a.year !== b.year ? a.year - b.year : a.month - b.month)
-    .slice(-6)
-    .map(m => ({
-      label: `${MONTH_NAMES[m.month - 1].slice(0, 3)}/${String(m.year).slice(2)}`,
-      total: m.total,
-      current: m.year === year && m.month === month,
-    }));
-
-  const categoryTotals = (byCategory as { category: string; total: number }[])
-    .filter(category => category.total > 0)
-    .toSorted((left, right) => right.total - left.total);
-
-  const topCategoryData = categoryTotals
-    .slice(0, 9)
-    .map(category => ({
-      ...category,
-      share: monthTotal > 0 ? category.total / monthTotal : 0,
-    }));
-  const explicitTopCategoryNames = new Set(topCategoryData.map((category) => category.category));
-
-  const hiddenCategoryTotal = categoryTotals
-    .slice(9)
-    .reduce((sum, category) => sum + category.total, 0);
-
-  const rankedCategoryData: RankedCategoryRow[] = [
-    ...topCategoryData,
-    ...(hiddenCategoryTotal > 0
-      ? [{
-          category: 'Outras categorias',
-          total: hiddenCategoryTotal,
-          share: monthTotal > 0 ? hiddenCategoryTotal / monthTotal : 0,
-        }]
-      : []),
-  ];
-
-  const displayedCategoryData: RankedCategoryRow[] = [
-    ...rankedCategoryData,
-    ...Array.from({ length: Math.max(0, 10 - rankedCategoryData.length) }, (_, index) => ({
-      category: '—',
-      total: 0,
-      share: 0,
-      placeholderKey: `placeholder-${index}`,
-    })),
-  ];
-
-  const maxCategoryTotal = rankedCategoryData[0]?.total ?? 0;
-  const filteredExpenses = expenseList.filter((expense) => {
-    if (activeFilter.type === 'none') return true;
-    if (activeFilter.type === 'category') return expense.categories?.includes(activeFilter.value) ?? false;
-    if (activeFilter.type === 'other-categories') {
-      return expense.categories?.some((category) => !explicitTopCategoryNames.has(category)) ?? false;
-    }
-    if (activeFilter.type === 'day') return parseInt(expense.date.slice(8, 10), 10) === activeFilter.value;
-    return true;
+  const { data: positiveEntries = [], isLoading: entriesLoading } = useQuery({
+    queryKey: ['positive-entries', 'dashboard', year, month],
+    queryFn: () => positiveEntriesApi.list({
+      startDate: monthStart(year, month),
+      endDate: monthEnd(year, month),
+    }),
   });
-  const filteredTotal = filteredExpenses.reduce((sum, expense) => sum + expense.amount, 0);
 
-  function getFilterTitle() {
-    if (activeFilter.type === 'category') return `Despesas da categoria ${activeFilter.value}`;
-    if (activeFilter.type === 'other-categories') return 'Despesas de Outras categorias';
-    if (activeFilter.type === 'day') return `Despesas do dia ${String(activeFilter.value).padStart(2, '0')} de ${MONTH_NAMES[month - 1]}`;
-    return `Despesas de ${MONTH_NAMES[month - 1]} ${year}`;
+  const deleteExpense = useMutation({
+    mutationFn: expensesApi.delete,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['expenses'] });
+      toast.success('Gasto excluído.');
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  const deleteEntry = useMutation({
+    mutationFn: positiveEntriesApi.delete,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['positive-entries'] });
+      toast.success('Entrada excluída.');
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  const expenseMovements = useMemo(() => buildExpenseMovements(expenses as ExpenseResponse[]), [expenses]);
+  const entryMovements = useMemo(() => buildEntryMovements(positiveEntries as PositiveEntryResponse[]), [positiveEntries]);
+
+  const visibleMovements = useMemo(() => {
+    if (mode === 'expenses') return expenseMovements;
+    if (mode === 'entries') return entryMovements;
+    return sortMovements([...expenseMovements, ...entryMovements]);
+  }, [entryMovements, expenseMovements, mode]);
+
+  const monthExpenseTotal = useMemo(
+    () => expenseMovements.reduce((sum, movement) => sum + movement.absoluteAmount, 0),
+    [expenseMovements]
+  );
+  const monthEntryTotal = useMemo(
+    () => entryMovements.reduce((sum, movement) => sum + movement.absoluteAmount, 0),
+    [entryMovements]
+  );
+  const monthBalance = monthEntryTotal - monthExpenseTotal;
+
+  const expenseRanking = useMemo(() => aggregateRankings(expenseMovements, 'expense').slice(0, 6), [expenseMovements]);
+  const entryRanking = useMemo(() => aggregateRankings(entryMovements, 'entry').slice(0, 6), [entryMovements]);
+
+  const filteredMovements = useMemo(() => {
+    return visibleMovements.filter((movement) => {
+      if (activeFilter.type === 'none') return true;
+      if (activeFilter.type === 'day') return parseInt(movement.date.slice(8, 10), 10) === activeFilter.value;
+      if (activeFilter.type === 'expense-category') return movement.type === 'expense' && movement.classification === activeFilter.value;
+      if (activeFilter.type === 'entry-category') return movement.type === 'entry' && movement.classification === activeFilter.value;
+      return true;
+    });
+  }, [activeFilter, visibleMovements]);
+
+  const calendarItems = useMemo<FinancialCalendarItem[]>(() => {
+    const sourceMovements = mode === 'expenses'
+      ? expenseMovements
+      : mode === 'entries'
+        ? entryMovements
+        : sortMovements([...expenseMovements, ...entryMovements]);
+
+    return sourceMovements.map((movement) => ({
+      id: movement.id,
+      date: movement.date,
+      amount: movement.signedAmount,
+      description: movement.description,
+      summaryItems: movement.summaryItems,
+    }));
+  }, [entryMovements, expenseMovements, mode]);
+
+  const loading = expensesLoading || entriesLoading;
+  const filteredNetTotal = filteredMovements.reduce((sum, movement) => sum + movement.signedAmount, 0);
+
+  function toggleExpenseCategory(value: string) {
+    setActiveFilter((current) => current.type === 'expense-category' && current.value === value
+      ? { type: 'none' }
+      : { type: 'expense-category', value });
   }
 
-  function getFilterMeta() {
-    if (activeFilter.type === 'category') return `${filteredExpenses.length} ${filteredExpenses.length === 1 ? 'lançamento' : 'lançamentos'} — total: ${formatBRL(filteredTotal)}`;
-    if (activeFilter.type === 'day') return `${filteredExpenses.length} ${filteredExpenses.length === 1 ? 'lançamento' : 'lançamentos'} — total: ${formatBRL(filteredTotal)}`;
-    return `total: ${formatBRL(monthTotal)}`;
+  function toggleEntryCategory(value: string) {
+    setActiveFilter((current) => current.type === 'entry-category' && current.value === value
+      ? { type: 'none' }
+      : { type: 'entry-category', value });
   }
+
+  function handleDelete(movement: FinancialMovement) {
+    if (!confirm(`Excluir "${movement.description}"?`)) return;
+
+    if (movement.type === 'expense' && movement.expense) {
+      deleteExpense.mutate(movement.expense.id);
+      return;
+    }
+
+    if (movement.type === 'entry' && movement.entry) {
+      deleteEntry.mutate(movement.entry.id);
+    }
+  }
+
+  const selectedExpenseCategory = activeFilter.type === 'expense-category' ? activeFilter.value : null;
+  const selectedEntryCategory = activeFilter.type === 'entry-category' ? activeFilter.value : null;
 
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-6">
-      {/* header */}
-      <div className="flex items-center gap-4">
-        <h1 className="text-2xl font-semibold flex-1">Dashboard</h1>
-        <div className="flex items-center gap-2">
-          <Button size="icon-sm" variant="outline" onClick={prevMonth}>
-            <ChevronLeftIcon className="w-4 h-4" />
-          </Button>
-          <span className="text-sm font-medium w-36 text-center">
-            {MONTH_NAMES[month - 1]} {year}
-          </span>
-          <Button size="icon-sm" variant="outline" onClick={nextMonth}>
-            <ChevronRightIcon className="w-4 h-4" />
-          </Button>
+    <div className="p-6 max-w-6xl mx-auto space-y-6">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="space-y-2">
+          <div>
+            <h1 className="text-2xl font-semibold">{getPageTitle(mode)}</h1>
+            <p className="text-sm text-muted-foreground">{getPageDescription(mode)}</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant={mode === 'combined' ? 'default' : 'outline'} onClick={() => { setMode('combined'); setActiveFilter({ type: 'none' }); }}>
+              Consolidado
+            </Button>
+            <Button size="sm" variant={mode === 'expenses' ? 'default' : 'outline'} onClick={() => { setMode('expenses'); setActiveFilter({ type: 'none' }); }}>
+              Gastos
+            </Button>
+            <Button size="sm" variant={mode === 'entries' ? 'default' : 'outline'} onClick={() => { setMode('entries'); setActiveFilter({ type: 'none' }); }}>
+              Entradas
+            </Button>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          {mode !== 'entries' && <NewExpenseDialog />}
+          {mode !== 'expenses' && <NewPositiveEntryDialog />}
+          <div className="ml-0 flex items-center gap-2 lg:ml-4">
+            <Button size="icon-sm" variant="outline" onClick={prevMonth}>
+              <ChevronLeftIcon className="w-4 h-4" />
+            </Button>
+            <span className="text-sm font-medium w-36 text-center">
+              {MONTH_NAMES[month - 1]} {year}
+            </span>
+            <Button size="icon-sm" variant="outline" onClick={nextMonth}>
+              <ChevronRightIcon className="w-4 h-4" />
+            </Button>
+          </div>
         </div>
       </div>
 
-      {/* summary cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <Card className="h-full">
-          <CardHeader><CardTitle className="text-sm text-muted-foreground">Total do mês</CardTitle></CardHeader>
-          <CardContent><p className="text-2xl font-bold tabular-nums">{formatBRL(monthTotal)}</p></CardContent>
+      <Card className="sm:hidden">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm text-muted-foreground">Resumo do mês</CardTitle>
+        </CardHeader>
+        <CardContent className="grid grid-cols-3 gap-3 pt-0">
+          <div className="min-w-0 rounded-lg bg-emerald-50 px-3 py-3">
+            <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-emerald-700/80">Entradas</p>
+            <p className="mt-1 truncate text-base font-bold tabular-nums text-emerald-700">{formatBRL(monthEntryTotal)}</p>
+          </div>
+          <div className="min-w-0 rounded-lg bg-rose-50 px-3 py-3">
+            <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-rose-700/80">Gastos</p>
+            <p className="mt-1 truncate text-base font-bold tabular-nums text-rose-700">{formatBRL(monthExpenseTotal)}</p>
+          </div>
+          <div className="min-w-0 rounded-lg bg-slate-100 px-3 py-3">
+            <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-slate-600">Saldo</p>
+            <p className={[
+              'mt-1 truncate text-base font-bold tabular-nums',
+              monthBalance >= 0 ? 'text-emerald-700' : 'text-rose-700',
+            ].join(' ')}>
+              {formatSignedBRL(monthBalance)}
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="hidden gap-4 sm:grid sm:grid-cols-3">
+        <Card>
+          <CardHeader><CardTitle className="text-sm text-muted-foreground">Entradas</CardTitle></CardHeader>
+          <CardContent><p className="text-2xl font-bold text-emerald-700 tabular-nums">{formatBRL(monthEntryTotal)}</p></CardContent>
         </Card>
         <Card>
-          <CardHeader><CardTitle className="text-sm text-muted-foreground">Despesas</CardTitle></CardHeader>
-          <CardContent><p className="text-2xl font-bold">{expenseList.length}</p></CardContent>
+          <CardHeader><CardTitle className="text-sm text-muted-foreground">Gastos</CardTitle></CardHeader>
+          <CardContent><p className="text-2xl font-bold text-rose-700 tabular-nums">{formatBRL(monthExpenseTotal)}</p></CardContent>
         </Card>
         <Card>
-          <CardHeader><CardTitle className="text-sm text-muted-foreground">Sem categoria</CardTitle></CardHeader>
-          <CardContent><p className="text-2xl font-bold">{noTagCount}</p></CardContent>
+          <CardHeader><CardTitle className="text-sm text-muted-foreground">Saldo</CardTitle></CardHeader>
+          <CardContent>
+            <p className={['text-2xl font-bold tabular-nums', monthBalance >= 0 ? 'text-emerald-700' : 'text-rose-700'].join(' ')}>
+              {formatSignedBRL(monthBalance)}
+            </p>
+          </CardContent>
         </Card>
       </div>
 
-      {/* evolution — subtle inline strip */}
-      {evolutionData.length > 0 && (
-        <div className="rounded-lg border bg-muted/30 px-4 py-3">
-          <p className="text-xs text-muted-foreground mb-2">Evolução — últimos 6 meses</p>
-          <ResponsiveContainer width="100%" height={60}>
-            <BarChart data={evolutionData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }} barCategoryGap="30%">
-              <XAxis dataKey="label" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
-              <Tooltip formatter={(v) => formatBRL(Number(v))} cursor={{ fill: 'transparent' }} />
-              <Bar dataKey="total" radius={[3, 3, 0, 0]}>
-                {evolutionData.map((entry, i) => (
-                  <Cell key={i} fill={entry.current ? '#6366f1' : '#c7d2fe'} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      )}
-
-      {/* category pie + calendar side by side */}
-      <div className="grid grid-cols-1 items-stretch gap-4 xl:grid-cols-2">
-        {/* by category */}
-        <div ref={topTenWrapperRef} className="h-full w-full min-w-0">
-          <Card className="h-full w-full min-w-0">
-            <CardHeader>
-              <CardTitle className="text-sm">Top 10 categorias de gastos</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-3">
-                {displayedCategoryData.map((category, index) => {
-                  const width = maxCategoryTotal > 0 ? (category.total / maxCategoryTotal) * 100 : 0;
-                  const isSelected =
-                    (activeFilter.type === 'category' && activeFilter.value === category.category)
-                    || (activeFilter.type === 'other-categories' && category.category === 'Outras categorias');
-                  const isAggregatedRow = category.category === 'Outras categorias';
-                  const isPlaceholderRow = category.category === '—';
-
-                  return (
-                    <button
-                      key={category.placeholderKey ?? category.category}
-                      type="button"
-                      onClick={() => {
-                        if (isPlaceholderRow) return;
-                        if (isAggregatedRow) {
-                          setActiveFilter(isSelected ? { type: 'none' } : { type: 'other-categories' });
-                          return;
-                        }
-                        setActiveFilter(isSelected ? { type: 'none' } : { type: 'category', value: category.category });
-                      }}
-                      className={[
-                        'flex w-full min-w-0 flex-col gap-1.5 rounded-lg border border-transparent p-2 text-left transition-colors',
-                        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
-                        !isPlaceholderRow ? 'hover:bg-muted/40' : '',
-                        isSelected ? 'border-primary/35 bg-accent shadow-sm ring-1 ring-inset ring-primary/25' : '',
-                        isPlaceholderRow ? 'cursor-default' : 'cursor-pointer',
-                      ].join(' ')}
-                      aria-pressed={isSelected}
-                      disabled={isPlaceholderRow}
-                    >
-                      <div className="flex w-full items-start justify-between gap-3 min-w-0">
-                        <div className="min-w-0 flex flex-1 items-start gap-2">
-                          <span className={[
-                            'pt-0.5 text-xs font-medium tabular-nums',
-                            isSelected ? 'text-primary' : 'text-muted-foreground',
-                          ].join(' ')}>
-                            {String(index + 1).padStart(2, '0')}
-                          </span>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2 min-w-0">
-                              <span className={['truncate text-sm font-medium', isSelected ? 'text-foreground' : ''].join(' ')}>{category.category}</span>
-                            </div>
-                            <p className={['text-xs', isSelected ? 'text-foreground/80' : 'text-muted-foreground'].join(' ')}>
-                              {isPlaceholderRow
-                                ? '—'
-                                : `${formatPercent(category.share)} do total do mês${isAggregatedRow ? ' (agregado)' : ''}`}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="text-right flex-shrink-0">
-                          <p className={['text-sm font-semibold tabular-nums', isSelected ? 'text-primary' : ''].join(' ')}>{isPlaceholderRow ? '—' : formatBRL(category.total)}</p>
-                        </div>
-                      </div>
-                      <div className={['h-2 w-full overflow-hidden rounded-full', isSelected ? 'bg-primary/15' : 'bg-muted'].join(' ')}>
-                        <div
-                          className={['h-full rounded-full transition-all', isSelected ? 'opacity-100 saturate-150' : 'opacity-90'].join(' ')}
-                          style={{
-                            width: `${width}%`,
-                            backgroundColor: RANKING_COLORS[index % RANKING_COLORS.length],
-                          }}
-                        />
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </CardContent>
-          </Card>
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+        <div className="grid grid-cols-1 gap-4">
+          {mode === 'combined' ? (
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <RankingCard
+                title="Top categorias de gastos"
+                rows={expenseRanking}
+                selectedValue={selectedExpenseCategory}
+                emptyMessage="Nenhum gasto no período."
+                onToggle={toggleExpenseCategory}
+                colorPalette={RANKING_COLORS}
+              />
+              <RankingCard
+                title="Top categorias de entradas"
+                rows={entryRanking}
+                selectedValue={selectedEntryCategory}
+                emptyMessage="Nenhuma entrada no período."
+                onToggle={toggleEntryCategory}
+                colorPalette={ENTRY_RANKING_COLORS}
+              />
+            </div>
+          ) : mode === 'expenses' ? (
+            <RankingCard
+              title="Top categorias de gastos"
+              rows={expenseRanking}
+              selectedValue={selectedExpenseCategory}
+              emptyMessage="Nenhum gasto no período."
+              onToggle={toggleExpenseCategory}
+              colorPalette={RANKING_COLORS}
+            />
+          ) : (
+            <RankingCard
+              title="Top categorias de entradas"
+              rows={entryRanking}
+              selectedValue={selectedEntryCategory}
+              emptyMessage="Nenhuma entrada no período."
+              onToggle={toggleEntryCategory}
+              colorPalette={ENTRY_RANKING_COLORS}
+            />
+          )}
         </div>
 
         <FinancialCalendarCard
-          className="h-full"
-          style={calendarHeight === null ? undefined : { height: `${calendarHeight}px` }}
           year={year}
           month={month}
-          expenses={expenseList}
+          items={calendarItems}
+          title={mode === 'combined' ? 'Calendário do saldo diário' : mode === 'expenses' ? 'Calendário de gastos' : 'Calendário de entradas'}
           selectedDay={activeFilter.type === 'day' ? activeFilter.value : null}
           onDaySelect={(day) => setActiveFilter(day === null ? { type: 'none' } : { type: 'day', value: day })}
         />
       </div>
 
-      {/* expense list */}
       <Card>
         <CardHeader>
           <CardTitle className="text-sm">
-            {getFilterTitle()}
-            <span className="ml-2 text-muted-foreground font-normal">
-              — {getFilterMeta()}
-            </span>
+            {getListTitle(mode, activeFilter, year, month)}
+            <span className="ml-2 text-muted-foreground font-normal">— resultado: {formatSignedBRL(filteredNetTotal)}</span>
           </CardTitle>
         </CardHeader>
         <CardContent className="p-0">
           {activeFilter.type !== 'none' && (
             <div className="flex items-center justify-between border-b px-4 py-3 text-sm">
-              <p className="text-muted-foreground">Resultado filtrado a partir da seleção no Top 10 ou no calendário.</p>
+              <p className="text-muted-foreground">Resultado filtrado a partir do ranking ou do calendário.</p>
               <Button type="button" variant="outline" size="sm" onClick={() => setActiveFilter({ type: 'none' })}>
                 Limpar seleção
               </Button>
             </div>
           )}
-          {isLoading
-            ? <p className="px-4 py-3 text-sm text-muted-foreground">Carregando...</p>
-            : (
-              <Table>
-                <TableHeader>
+
+          {loading ? (
+            <p className="px-4 py-3 text-sm text-muted-foreground">Carregando...</p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Data</TableHead>
+                  <TableHead>Lançamento</TableHead>
+                  <TableHead>Classificação</TableHead>
+                  <TableHead>Tags</TableHead>
+                  <TableHead className="text-right">Valor</TableHead>
+                  <TableHead className="w-24" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredMovements.length === 0 && (
                   <TableRow>
-                    <TableHead>Lançamento</TableHead>
-                    <TableHead>Tags</TableHead>
-                    <TableHead className="text-right">Valor</TableHead>
+                    <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                      Nenhuma movimentação encontrada para a seleção atual.
+                    </TableCell>
                   </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredExpenses.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={3} className="text-center text-muted-foreground py-8">
-                        Nenhuma despesa encontrada para a seleção atual.
-                      </TableCell>
-                    </TableRow>
-                  )}
-                  {filteredExpenses
-                    .toSorted((left, right) => right.date.localeCompare(left.date))
-                    .map(e => (
-                    <TableRow key={e.id}>
-                      <TableCell>
-                        <div className="space-y-1">
-                          <p className="whitespace-nowrap text-xs text-muted-foreground">
-                            {new Date(e.date).toLocaleDateString('pt-BR')}
-                          </p>
-                          <p className="font-medium leading-snug">{e.description}</p>
+                )}
+
+                {filteredMovements.map((movement) => (
+                  <TableRow key={`${movement.type}-${movement.id}`}>
+                    <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
+                      {new Date(movement.date).toLocaleDateString('pt-BR')}
+                    </TableCell>
+                    <TableCell>
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <Badge variant={movement.type === 'expense' ? 'destructive' : 'default'}>
+                            {movement.type === 'expense' ? 'Gasto' : 'Entrada'}
+                          </Badge>
+                          <p className="font-medium leading-snug">{movement.description}</p>
                         </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex flex-wrap gap-1">
-                          {e.tagCodes?.length
-                            ? e.tagCodes.map(t => <Badge key={t} variant="outline">{t}</Badge>)
-                            : <span className="text-muted-foreground text-xs">—</span>}
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right font-mono">{formatBRL(e.amount)}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
+                        <p className="text-xs text-muted-foreground">{movement.origin}</p>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline">{movement.classification}</Badge>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap gap-1">
+                        {movement.tagCodes.length > 0
+                          ? movement.tagCodes.map((tag) => <Badge key={tag} variant="secondary">{tag}</Badge>)
+                          : <span className="text-xs text-muted-foreground">—</span>}
+                      </div>
+                    </TableCell>
+                    <TableCell className={['text-right font-mono', movement.type === 'expense' ? 'text-rose-700' : 'text-emerald-700'].join(' ')}>
+                      {formatSignedBRL(movement.signedAmount)}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex justify-end gap-1">
+                        <Button
+                          size="icon-sm"
+                          variant="ghost"
+                          onClick={() => {
+                            if (movement.type === 'expense' && movement.expense) {
+                              setEditingExpense(movement.expense);
+                              return;
+                            }
+
+                            if (movement.type === 'entry' && movement.entry) {
+                              setEditingEntry(movement.entry);
+                            }
+                          }}
+                          title="Editar"
+                        >
+                          <PencilIcon className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          size="icon-sm"
+                          variant="ghost"
+                          className="text-destructive hover:text-destructive"
+                          onClick={() => handleDelete(movement)}
+                          title="Excluir"
+                        >
+                          <Trash2Icon className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
+
+      <EditExpenseDialog expense={editingExpense} onClose={() => setEditingExpense(null)} />
+      <EditPositiveEntryDialog entry={editingEntry} onClose={() => setEditingEntry(null)} />
     </div>
   );
 }
