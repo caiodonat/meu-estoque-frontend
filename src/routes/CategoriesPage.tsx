@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { PlusIcon, PencilIcon, Trash2Icon, XIcon, TagIcon, PowerIcon } from 'lucide-react';
+import { PlusIcon, PencilIcon, Trash2Icon, XIcon, TagIcon, PowerIcon, PowerOffIcon } from 'lucide-react';
 import {
   categoriesApi,
   positiveEntryCategoriesApi,
@@ -578,7 +578,6 @@ export default function CategoriesPage() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-semibold">Categorias</h1>
-          <p className="text-sm text-muted-foreground">Gerencie categorias de gastos e a estrutura fixa das categorias de entrada no mesmo lugar.</p>
         </div>
       </div>
 
@@ -586,7 +585,6 @@ export default function CategoriesPage() {
         <div className="flex items-center justify-between gap-3">
           <div>
             <h2 className="text-lg font-semibold">Categorias de Gastos</h2>
-            <p className="text-sm text-muted-foreground">CRUD completo das categorias usadas nas despesas.</p>
           </div>
           <NewCategoryDialog />
         </div>
@@ -599,7 +597,7 @@ export default function CategoriesPage() {
           </div>
         )}
 
-        <div className="space-y-3">
+        <div className="grid gap-3 md:grid-cols-2">
           {categories.map((cat) => (
             <div
               key={cat.id}
@@ -615,11 +613,6 @@ export default function CategoriesPage() {
                       </span>
                     )}
                   </div>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    {cat.tags.length === 0
-                      ? 'Sem tags'
-                      : `${cat.tags.length} tag${cat.tags.length > 1 ? 's' : ''}`}
-                  </p>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
                   <EditCategoryDialog category={cat} />
@@ -668,12 +661,12 @@ export default function CategoriesPage() {
           ))}
         </div>
       </section>
-
+	<hr/>
       <section className="space-y-4">
         <div className="flex items-start justify-between gap-3">
           <div>
             <h2 className="text-lg font-semibold">Categorias de Entrada</h2>
-            <p className="text-sm text-muted-foreground">As categorias de entrada são fixas no domínio. Aqui você gerencia as tags ligadas a cada categoria.</p>
+			<p>Clique em qualquer tag para editar.</p>
           </div>
           <Button
             size="sm"
@@ -704,19 +697,22 @@ export default function CategoriesPage() {
                     <div>
                       <div className="flex items-center gap-2">
                         <span className="font-medium">{category.label}</span>
-                        <Badge variant="outline">{category.nature}</Badge>
                       </div>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {tagsForCategory.length === 0
-                          ? 'Sem tags de entrada vinculadas.'
-                          : `${tagsForCategory.length} tag${tagsForCategory.length > 1 ? 's' : ''} vinculada${tagsForCategory.length > 1 ? 's' : ''}.`}
-                      </p>
                     </div>
                   </div>
-
                   <div className="flex flex-wrap gap-1.5">
                     {tagsForCategory.length > 0 ? tagsForCategory.map((tag) => (
-                      <Badge key={tag.code} variant={tag.isActive ? 'secondary' : 'outline'}>
+                      <Badge key={tag.code} variant={tag.isActive ? 'outline' : 'destructive'}
+						onClick={() => {
+                          setPositiveEntryTagForm({
+                            code: tag.code,
+                            previousCode: tag.code,
+                            positiveEntryCategoryId: tag.positiveEntryCategoryId,
+                            isActive: tag.isActive,
+                          });
+                          setPositiveEntryTagDialogOpen(true);
+                        }}
+					  >
                         {tag.code}
                       </Badge>
                     )) : (
@@ -728,86 +724,6 @@ export default function CategoriesPage() {
             })}
           </div>
         )}
-
-        <div className="rounded-md border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Tag</TableHead>
-                <TableHead>Categoria</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="w-28" />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {isPositiveEntryTagsLoading && (
-                <TableRow>
-                  <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">Carregando tags de entrada...</TableCell>
-                </TableRow>
-              )}
-
-              {!isPositiveEntryTagsLoading && positiveEntryTags.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">Nenhuma Tag de Entrada cadastrada.</TableCell>
-                </TableRow>
-              )}
-
-              {positiveEntryTags.map((tag) => (
-                <TableRow key={tag.code}>
-                  <TableCell className="font-medium">{tag.code}</TableCell>
-                  <TableCell>{tag.categoryLabel}</TableCell>
-                  <TableCell>
-                    <Badge variant={tag.isActive ? 'default' : 'outline'}>
-                      {tag.isActive ? 'Ativa' : 'Inativa'}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex justify-end gap-1">
-                      <Button
-                        size="icon-sm"
-                        variant="ghost"
-                        title="Editar"
-                        onClick={() => {
-                          setPositiveEntryTagForm({
-                            code: tag.code,
-                            previousCode: tag.code,
-                            positiveEntryCategoryId: tag.positiveEntryCategoryId,
-                            isActive: tag.isActive,
-                          });
-                          setPositiveEntryTagDialogOpen(true);
-                        }}
-                      >
-                        <PencilIcon className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        size="icon-sm"
-                        variant="ghost"
-                        title={tag.isActive ? 'Inativar ou ativar' : 'Ativar ou inativar'}
-                        onClick={() => togglePositiveEntryTagStatus.mutate(tag)}
-                      >
-                        <PowerIcon className="h-4 w-4" />
-                      </Button>
-                      {tag.isActive && (
-                        <Button
-                          size="icon-sm"
-                          variant="ghost"
-                          className="text-destructive hover:text-destructive"
-                          title="Inativar"
-                          onClick={() => {
-                            if (!confirm(`Inativar "${tag.code}"?`)) return;
-                            deactivatePositiveEntryTag.mutate(tag.code);
-                          }}
-                        >
-                          <Trash2Icon className="h-4 w-4" />
-                        </Button>
-                      )}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
       </section>
 
       <PositiveEntryTagDialog
